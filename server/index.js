@@ -39,6 +39,7 @@ const rooms = new Map();
 const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 4);
 const falKey = process.env.FAL_KEY || process.env.FAL_API_KEY || process.env.API_KEY;
 const forceMockAi = String(process.env.MOCK_AI || '').toLowerCase() === 'true';
+let lastAiError = null;
 
 if (falKey && !forceMockAi) {
   fal.config({ credentials: falKey });
@@ -270,17 +271,28 @@ async function createAiImage(room, chain, playerId, drawingUrl) {
   }
 
   try {
+    lastAiError = null;
     return {
       url: await createFalKontextImage(chain, drawingUrl),
       authorId: 'fal-ai'
     };
   } catch (error) {
-    console.error('Fal generation failed, falling back to mock image:', error?.message || error);
+    lastAiError = describeError(error);
+    console.error('Fal generation failed, falling back to mock image:', lastAiError);
     return {
       url: await createMockAiImage(room, chain, playerId, drawingUrl),
       authorId: 'mock-ai'
     };
   }
+}
+
+function describeError(error) {
+  return {
+    name: error?.name || 'Error',
+    message: error?.message || String(error),
+    status: error?.status || error?.response?.status || null,
+    body: error?.body || error?.response?.body || null
+  };
 }
 
 async function createFalKontextImage(chain, drawingUrl) {
@@ -376,7 +388,15 @@ app.post('/api/drawings', upload.single('drawing'), (req, res) => {
 });
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    ai: {
+      provider: falKey && !forceMockAi ? 'fal-ai/flux-pro/kontext' : 'mock',
+      keyConfigured: Boolean(falKey),
+      forcedMock: forceMockAi,
+      lastError: lastAiError
+    }
+  });
 });
 
 app.use('/uploads', express.static(uploadDir));

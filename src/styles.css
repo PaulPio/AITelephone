@@ -129,8 +129,21 @@ label {
   display: grid;
   gap: 22px;
   border-width: 3px;
-  background: rgba(76, 37, 147, 0.9);
-  color: #fff8ef;
+  background: rgba(255, 248, 239, 0.96);
+  color: #241530;
+}
+
+.intro-panel h1 {
+  color: #241530;
+  text-shadow: 0 4px 0 rgba(54, 225, 159, 0.55);
+}
+
+.intro-panel label {
+  color: #241530;
+}
+
+.intro-panel .lede {
+  color: #5b466b;
 }
 
 .panel {
@@ -195,7 +208,7 @@ h2 {
 }
 
 .intro-panel .muted {
-  color: #eadbff;
+  color: #5b466b;
 }
 
 .error {
