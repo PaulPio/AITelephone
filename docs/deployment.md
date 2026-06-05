@@ -3,7 +3,7 @@
 ## Services
 
 - Client: Vercel, deployed from the repo root with `vercel.json`.
-- Server: Railway or Render, deployed from the repo root as a long-running Node process. Railway uses `railway.json`.
+- Server: Render or Railway, deployed from the repo root as a long-running Node process. Render uses `render.yaml`; Railway uses `railway.json`.
 - State: Upstash Redis REST database.
 - Images: Cloudflare R2 or S3-compatible bucket with a public base URL.
 - AI: any image-to-image endpoint that accepts an image URL and returns an image URL.
@@ -37,7 +37,7 @@ Server variables:
 
 ## Deployment Order
 
-1. Deploy the server to Railway or Render from the repo root.
+1. Deploy the server to Render or Railway from the repo root.
 2. Set the server's `CLIENT_ORIGIN` to the Vercel app origin once you know it.
 3. Deploy the client to Vercel from the repo root.
 4. Set Vercel's `VITE_API_URL` and `VITE_SOCKET_URL` to the public server URL.
