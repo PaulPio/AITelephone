@@ -169,7 +169,6 @@ function createRoom(hostName) {
 
 function startGame(room) {
   if (room.players.length < 1 || room.players.length > room.config.maxPlayers) return;
-  const promptPool = buildPromptPool(room);
   room.promptOptions = {};
   room.chains = room.players.map((player, index) => ({
     id: `chain-${index + 1}`,
@@ -178,16 +177,22 @@ function startGame(room) {
     links: []
   }));
   room.players.forEach((player, index) => {
-    room.promptOptions[player.id] = pickPromptOptions(promptPool, index);
+    room.promptOptions[player.id] = pickPromptOptionsForPlayer(room, player.id, index);
   });
   room.round = 1;
   room.revealIndex = 0;
   beginPromptChoice(room);
 }
 
-function buildPromptPool(room) {
-  const submitted = room.players.flatMap((player) => player.prompts || []);
+function buildPromptPool(room, excludedPlayerId = null) {
+  const submitted = room.players
+    .filter((player) => player.id !== excludedPlayerId)
+    .flatMap((player) => player.prompts || []);
   return [...submitted, ...seedWords].map(cleanPrompt).filter(Boolean);
+}
+
+function pickPromptOptionsForPlayer(room, playerId, offset) {
+  return pickPromptOptions(buildPromptPool(room, playerId), offset);
 }
 
 function pickPromptOptions(promptPool, offset) {

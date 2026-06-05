@@ -21,11 +21,25 @@ For phones on the same network, use the network URL printed by Vite, such as:
 http://YOUR-LAN-IP:5173/
 ```
 
+For a public phone-friendly URL, run Cloudflare Tunnel in a separate terminal:
+
+```bash
+~/.local/bin/cloudflared tunnel --url http://localhost:3001
+```
+
+If the default QUIC tunnel seems to interfere with WiFi or internet access, force HTTP/2:
+
+```bash
+~/.local/bin/cloudflared tunnel --protocol http2 --url http://localhost:3001
+```
+
 ## Current Demo
 
 - Host creates a room and can also play.
 - Up to 10 players can join a room.
 - Host can start the game, reset to lobby, and move through the reveal.
+- Players can submit up to three prompt ideas before the game starts.
+- Prompt choices exclude the player's own submitted prompts.
 - Players alternate between drawing text prompts and describing mock AI images.
 - The drawing canvas has brush, undo, clear, colors, and a bucket fill tool.
 - The app uses Fal Flux Kontext for image-to-image generation when an API key is present.
