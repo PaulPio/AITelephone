@@ -1,0 +1,23 @@
+{
+  "name": "gartic-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "client",
+    "server",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "npm run build -w shared && concurrently -n server,client -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
+    "test": "npm run test -w shared && npm run build -w shared && npm run test -w server && npm run test -w client",
+    "lint": "npm run lint -w shared && npm run build -w shared && npm run lint -w server && npm run lint -w client",
+    "typecheck": "npm run typecheck -w shared && npm run build -w shared && npm run typecheck -w server && npm run typecheck -w client"
+  },
+  "devDependencies": {
+    "concurrently": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}
