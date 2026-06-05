@@ -196,7 +196,7 @@ function createRoom(hostName) {
     timer: null,
     config: {
       numRounds: 5,
-      drawTimerSec: 30,
+      drawTimerSec: 45,
       describeTimerSec: 30,
       minPlayers: 2,
       chooseTimerSec: 20,

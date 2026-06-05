@@ -41,6 +41,7 @@ If the default QUIC tunnel seems to interfere with WiFi or internet access, forc
 - Players can submit up to three prompt ideas before the game starts.
 - Prompt choices exclude the player's own submitted prompts.
 - Players alternate between drawing text prompts and describing mock AI images.
+- Drawing rounds are 45 seconds; description rounds are 30 seconds.
 - The drawing canvas has brush, undo, clear, colors, and a bucket fill tool.
 - The app uses Fal Flux Kontext for image-to-image generation when an API key is present.
 - If Fal is not configured or generation fails, the app falls back to a mock AI image so the game keeps moving.
