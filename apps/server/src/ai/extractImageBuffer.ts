@@ -8,6 +8,31 @@ export function bufferFromDataUrl(url: string): Buffer | null {
   }
 }
 
+/** OpenRouter chat/completions JSON (images live on choices[0].message.images). */
+export function extractImageBufferFromOpenRouterCompletion(
+  completion: unknown
+): Buffer | null {
+  const msg = (
+    completion as {
+      choices?: Array<{
+        message?: {
+          images?: Array<{ image_url?: { url?: string }; url?: string }>;
+          content?: unknown;
+        };
+      }>;
+    }
+  ).choices?.[0]?.message;
+
+  if (!msg) return null;
+
+  const directUrl =
+    msg.images?.[0]?.image_url?.url ?? msg.images?.[0]?.url;
+  const fromImages = bufferFromDataUrl(directUrl ?? "");
+  if (fromImages) return fromImages;
+
+  return extractImageBufferFromResult({ response: { messages: [msg] } });
+}
+
 export function extractImageBufferFromResult(result: unknown): Buffer | null {
   const r = result as {
     files?: Array<{ base64?: string; uint8Array?: Uint8Array }>;
