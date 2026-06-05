@@ -353,18 +353,25 @@ export function HostPage({ accessToken }: Props) {
             </div>
           )}
 
-          {room.state === "GAME_OVER" && (
+          {room.state === "GAME_OVER" ? (
             <div className="card" style={{ marginTop: "1rem" }}>
               <h2>Game over</h2>
               <p>Thanks for playing DRIFT.</p>
+              <PageActions
+                onNewGame={() => startNewGame()}
+                onHome={goHome}
+                newGameDisabled={!connected}
+              />
+            </div>
+          ) : (
+            <div className="card page-actions-card" style={{ marginTop: "1rem" }}>
+              <PageActions
+                onNewGame={() => startNewGame()}
+                onHome={goHome}
+                newGameDisabled={!connected}
+              />
             </div>
           )}
-
-          <PageActions
-            onNewGame={() => startNewGame()}
-            onHome={goHome}
-            newGameDisabled={!connected}
-          />
         </>
       )}
 

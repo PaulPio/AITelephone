@@ -18,20 +18,14 @@ export function PageActions({
       {onNewGame && (
         <button
           type="button"
-          className="btn"
-          style={{ flex: 1 }}
+          className="btn page-actions-btn"
           disabled={newGameDisabled}
           onClick={() => void onNewGame()}
         >
           {newGameLabel}
         </button>
       )}
-      <button
-        type="button"
-        className="btn btn-secondary"
-        style={{ flex: 1 }}
-        onClick={onHome}
-      >
+      <button type="button" className="btn btn-secondary page-actions-btn" onClick={onHome}>
         {homeLabel}
       </button>
     </div>

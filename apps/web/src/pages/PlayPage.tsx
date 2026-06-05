@@ -211,7 +211,9 @@ export function PlayPage({ accessToken, email }: Props) {
           </button>
           {error && <p style={{ color: "crimson" }}>{error}</p>}
         </div>
-        <PageActions onHome={goHome} />
+        <div className="card page-actions-card" style={{ marginTop: "1rem" }}>
+          <PageActions onHome={goHome} />
+        </div>
       </div>
     );
   }

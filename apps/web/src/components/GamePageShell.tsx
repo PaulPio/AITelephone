@@ -20,11 +20,13 @@ export function GamePageShell({
         ← Back to home
       </button>
       {children}
-      <PageActions
-        onHome={onHome}
-        onNewGame={onNewGame}
-        newGameDisabled={newGameDisabled}
-      />
+      <div className="card page-actions-card" style={{ marginTop: "1rem" }}>
+        <PageActions
+          onHome={onHome}
+          onNewGame={onNewGame}
+          newGameDisabled={newGameDisabled}
+        />
+      </div>
     </div>
   );
 }
