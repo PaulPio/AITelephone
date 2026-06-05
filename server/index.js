@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { deflateSync } from 'zlib';
 import { Server } from 'socket.io';
 import { customAlphabet, nanoid } from 'nanoid';
 import 'dotenv/config';
@@ -318,11 +319,64 @@ function cleanDescription(description) {
 }
 
 async function createBlankDrawing(roomCode, playerId) {
-  const filename = `${Date.now()}-${nanoid(8)}-blank.svg`;
+  const filename = `${Date.now()}-${nanoid(8)}-blank.png`;
   const filepath = path.join(uploadDir, filename);
-  const playerLabel = playerId.slice(0, 5);
-  await fs.writeFile(filepath, `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" fill="#fffaf0"/><text x="256" y="256" text-anchor="middle" font-family="Arial" font-size="28" fill="#777">auto-submitted blank</text><text x="256" y="292" text-anchor="middle" font-family="Arial" font-size="18" fill="#999">${roomCode} / ${playerLabel}</text></svg>`);
+  await fs.writeFile(filepath, createSolidPng(512, 512, [255, 250, 240]));
   return `/uploads/${filename}`;
+}
+
+function createSolidPng(width, height, rgb) {
+  const bytesPerPixel = 3;
+  const stride = width * bytesPerPixel;
+  const raw = Buffer.alloc((stride + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const rowStart = y * (stride + 1);
+    raw[rowStart] = 0;
+    for (let x = 0; x < width; x += 1) {
+      const offset = rowStart + 1 + x * bytesPerPixel;
+      raw[offset] = rgb[0];
+      raw[offset + 1] = rgb[1];
+      raw[offset + 2] = rgb[2];
+    }
+  }
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', Buffer.concat([
+      uint32(width),
+      uint32(height),
+      Buffer.from([8, 2, 0, 0, 0])
+    ])),
+    pngChunk('IDAT', deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0))
+  ]);
+}
+
+function pngChunk(type, data) {
+  const typeBuffer = Buffer.from(type);
+  const body = Buffer.concat([typeBuffer, data]);
+  return Buffer.concat([
+    uint32(data.length),
+    body,
+    uint32(crc32(body))
+  ]);
+}
+
+function uint32(value) {
+  const buffer = Buffer.alloc(4);
+  buffer.writeUInt32BE(value >>> 0);
+  return buffer;
+}
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let i = 0; i < 8; i += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 async function createAiImage(room, chain, playerId, drawingUrl) {
@@ -370,7 +424,7 @@ async function createFalKontextImage(chain, drawingUrl) {
   const filename = path.basename(drawingUrl || '');
   const filepath = path.join(uploadDir, filename);
   const buffer = await fs.readFile(filepath);
-  const contentType = filename.endsWith('.svg') ? 'image/svg+xml' : 'image/png';
+  const contentType = contentTypeFor(filename);
   const sourceImageUrl = await fal.storage.upload(new Blob([buffer], { type: contentType }));
   const latestText = [...chain.links].reverse().find((link) => ['word', 'description'].includes(link.type));
   const prompt = [
@@ -398,6 +452,13 @@ async function createFalKontextImage(chain, drawingUrl) {
     throw new Error('Fal returned no image URL');
   }
   return imageUrl;
+}
+
+function contentTypeFor(filename) {
+  const extension = path.extname(filename).toLowerCase();
+  if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg';
+  if (extension === '.webp') return 'image/webp';
+  return 'image/png';
 }
 
 async function createMockAiImage(room, chain, playerId, drawingUrl) {
