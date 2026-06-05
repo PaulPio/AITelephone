@@ -12,15 +12,20 @@ import type { Server } from "socket.io";
 import { config } from "../config.js";
 import { transformDoodle } from "../ai/driftImagePipeline.js";
 import {
+  clearTurnAiForTurn,
   getCachedTurnImageUrl,
   turnAiKey,
 } from "../ai/turnAiLimit.js";
 import { RoomRepository } from "./RoomRepository.js";
+import {
+  BLANK_DRAWING,
+  canSupersedeBlankDrawing,
+} from "./turnSubmission.js";
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 
-const BLANK_DRAWING =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+/** Extra time after deadline so in-flight uploads can finish before a blank submit. */
+const TIMER_SUBMIT_GRACE_MS = 1500;
 
 export class GameEngine {
   private readonly repo = new RoomRepository();
@@ -28,6 +33,8 @@ export class GameEngine {
   private readonly deadlines = new Map<string, string>();
   /** One in-flight generation job per room+turn (all callers await the same work). */
   private readonly generationJobs = new Map<string, Promise<void>>();
+  /** Bumped when a late real drawing replaces a timer blank — stale jobs must not commit. */
+  private readonly generationVersion = new Map<string, number>();
   private readonly io: Server;
 
   constructor(io: Server) {
@@ -40,6 +47,16 @@ export class GameEngine {
 
   private roomTurnKey(roomId: string, turn: number) {
     return turnAiKey(roomId, turn);
+  }
+
+  private bumpGenerationVersion(turnKey: string): number {
+    const next = (this.generationVersion.get(turnKey) ?? 0) + 1;
+    this.generationVersion.set(turnKey, next);
+    return next;
+  }
+
+  private isGenerationCurrent(turnKey: string, version: number): boolean {
+    return this.generationVersion.get(turnKey) === version;
   }
 
   private imageUrlForRound(
@@ -144,17 +161,24 @@ export class GameEngine {
     playerId: string,
     drawingUrl: string
   ): Promise<void> {
-    const room = await this.repo.loadRoom(roomId);
-    if (room.state !== "DRAWING") return;
+    let room = await this.repo.loadRoom(roomId);
+    if (room.state !== "DRAWING" && room.state !== "GENERATING") return;
     if (room.config.activePlayerId !== playerId) {
       throw new Error("Not your turn");
     }
 
     const player = room.players.find((p) => p.id === playerId);
-    if (!player || player.submitted) return;
+    if (!player) return;
 
     const turnKey = this.roomTurnKey(roomId, room.round);
-    if (this.generationJobs.has(turnKey)) return;
+
+    if (player.submitted) {
+      const supersede = canSupersedeBlankDrawing(room, playerId, drawingUrl);
+      if (!supersede.ok) return;
+      await this.repo.updateLinkContent(supersede.linkId, drawingUrl);
+      await this.restartGeneratingForTurn(roomId, room.round);
+      return;
+    }
 
     const chain = this.mainChain(room);
     const alreadyHasImage = chain.links.some(
@@ -162,9 +186,32 @@ export class GameEngine {
     );
     if (alreadyHasImage) return;
 
+    if (this.generationJobs.has(turnKey)) {
+      const supersede = canSupersedeBlankDrawing(room, playerId, drawingUrl);
+      if (!supersede.ok) return;
+      await this.repo.updateLinkContent(supersede.linkId, drawingUrl);
+      await this.repo.setPlayerSubmitted(roomId, playerId, true);
+      await this.restartGeneratingForTurn(roomId, room.round);
+      return;
+    }
+
     await this.repo.addLink(chain.id, room.round, "drawing", playerId, drawingUrl);
     await this.repo.setPlayerSubmitted(roomId, playerId, true);
     this.clearTimer(roomId);
+    await this.enterGenerating(roomId);
+  }
+
+  private async restartGeneratingForTurn(
+    roomId: string,
+    turn: number
+  ): Promise<void> {
+    const turnKey = this.roomTurnKey(roomId, turn);
+    this.bumpGenerationVersion(turnKey);
+    clearTurnAiForTurn(roomId, turn);
+
+    const existingJob = this.generationJobs.get(turnKey);
+    if (existingJob) await existingJob;
+
     await this.enterGenerating(roomId);
   }
 
@@ -257,6 +304,8 @@ export class GameEngine {
   }
 
   private async onTurnTimerExpired(roomId: string): Promise<void> {
+    await new Promise((r) => setTimeout(r, TIMER_SUBMIT_GRACE_MS));
+
     const room = await this.repo.loadRoom(roomId);
     if (room.state !== "DRAWING") return;
 
@@ -267,6 +316,14 @@ export class GameEngine {
     if (!player || player.submitted) return;
 
     const chain = this.mainChain(room);
+    if (
+      chain.links.some(
+        (l) => l.type === "image" && l.round === room.round
+      )
+    ) {
+      return;
+    }
+
     await this.repo.addLink(
       chain.id,
       room.round,
@@ -275,6 +332,7 @@ export class GameEngine {
       BLANK_DRAWING
     );
     await this.repo.setPlayerSubmitted(roomId, activeId, true);
+    this.clearTimer(roomId);
     await this.enterGenerating(roomId);
   }
 
@@ -295,7 +353,8 @@ export class GameEngine {
       return;
     }
 
-    const job = this.runGeneratingTurn(roomId);
+    const version = this.bumpGenerationVersion(turnKey);
+    const job = this.runGeneratingTurn(roomId, version);
     this.generationJobs.set(turnKey, job);
     try {
       await job;
@@ -304,12 +363,19 @@ export class GameEngine {
     }
   }
 
-  private async runGeneratingTurn(roomId: string): Promise<void> {
+  private async runGeneratingTurn(
+    roomId: string,
+    generationVersion: number
+  ): Promise<void> {
     this.clearTimer(roomId);
     let room = await this.repo.loadRoom(roomId);
     if (room.state !== "DRAWING" && room.state !== "GENERATING") return;
 
     const turn = room.round;
+    const turnKey = this.roomTurnKey(roomId, turn);
+    const stillCurrent = () =>
+      this.isGenerationCurrent(turnKey, generationVersion);
+
     const activeId = room.config.activePlayerId;
     const active = room.players.find((p) => p.id === activeId);
     let chain = this.mainChain(room);
@@ -319,16 +385,18 @@ export class GameEngine {
       getCachedTurnImageUrl(roomId, turn);
 
     if (imageUrl) {
+      if (!stillCurrent()) return;
       this.broadcastAiImageReady(roomId, turn, imageUrl);
       await this.advanceAfterTurnImage(roomId);
       return;
     }
 
-    const drawingLinks = chain.links.filter(
+    const hasDrawing = chain.links.some(
       (l) => l.type === "drawing" && l.round === turn
     );
-    const drawing = drawingLinks[drawingLinks.length - 1];
-    if (!drawing) return;
+    if (!hasDrawing) return;
+
+    if (!stillCurrent()) return;
 
     await this.repo.updateRoomState(roomId, { state: "GENERATING" });
     await this.broadcastRoom(roomId);
@@ -342,8 +410,15 @@ export class GameEngine {
 
     emitProgress(0, 0);
 
+    room = await this.repo.loadRoom(roomId);
+    chain = this.mainChain(room);
+    const drawingNow = chain.links
+      .filter((l) => l.type === "drawing" && l.round === turn)
+      .at(-1);
+    if (!drawingNow || !stillCurrent()) return;
+
     imageUrl = await transformDoodle(
-      drawing.content,
+      drawingNow.content,
       roomId,
       room.config.styleSuffix,
       {
@@ -354,11 +429,15 @@ export class GameEngine {
     );
     emitProgress(1, 0);
 
+    if (!stillCurrent()) return;
+
     room = await this.repo.loadRoom(roomId);
     chain = this.mainChain(room);
     if (!this.imageUrlForRound(chain, turn)) {
       await this.repo.addLink(chain.id, turn, "image", null, imageUrl);
     }
+
+    if (!stillCurrent()) return;
 
     this.broadcastAiImageReady(roomId, turn, imageUrl);
     await this.advanceAfterTurnImage(roomId);

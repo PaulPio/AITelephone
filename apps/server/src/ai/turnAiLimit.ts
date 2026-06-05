@@ -19,6 +19,13 @@ export function resetTurnAiLimitForTests(): void {
   completedUrls.clear();
 }
 
+/** Drop cached / in-flight AI result so a new doodle can be transformed. */
+export function clearTurnAiForTurn(roomId: string, turn: number): void {
+  const key = turnAiKey(roomId, turn);
+  inFlightPromises.delete(key);
+  completedUrls.delete(key);
+}
+
 /**
  * Runs `factory` at most once per room+turn. Later callers await the same result URL.
  */

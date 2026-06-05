@@ -247,6 +247,15 @@ export class RoomRepository {
     };
   }
 
+  async updateLinkContent(linkId: string, content: string): Promise<void> {
+    const { error } = await supabase
+      .from("links")
+      .update({ content })
+      .eq("id", linkId);
+
+    if (error) throw new Error(error.message ?? "Link update failed");
+  }
+
   async loadRoom(roomId: string): Promise<RoomSnapshot> {
     const { data: room, error } = await supabase
       .from("rooms")
