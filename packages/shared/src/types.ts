@@ -11,8 +11,11 @@ export type RoundStartType = "word" | "redraw";
 
 export interface RoomConfig {
   drawTimerSec: number;
+  /** Total player turns (one draw per player). */
   numRounds: number;
   styleSuffix: string;
+  /** Player whose turn it is to draw (sequential telephone). */
+  activePlayerId?: string | null;
 }
 
 export interface PlayerSnapshot {
@@ -99,13 +102,32 @@ export interface RoundStartPayload {
   image?: string;
   deadline: string;
   round: number;
+  totalTurns: number;
   chainId: string;
+  playerName: string;
+}
+
+export interface TurnWaitingPayload {
+  round: number;
+  totalTurns: number;
+  activePlayerId: string;
+  activePlayerName: string;
+  /** What the active player is drawing from (for projector). */
+  promptType: RoundStartType;
+  word?: string;
+  image?: string;
 }
 
 export interface GeneratingPayload {
   count: number;
   completed: number;
   failed: number;
+}
+
+/** Same AI image URL for every player in the room (one generation per turn). */
+export interface AiImageReadyPayload {
+  round: number;
+  imageUrl: string;
 }
 
 export interface RevealStepPayload {
@@ -130,7 +152,9 @@ export const CLIENT_EVENTS = {
 export const SERVER_EVENTS = {
   ROOM_UPDATE: "roomUpdate",
   ROUND_START: "roundStart",
+  TURN_WAITING: "turnWaiting",
   GENERATING: "generating",
+  AI_IMAGE_READY: "aiImageReady",
   REVEAL_STEP: "revealStep",
   GAME_OVER: "gameOver",
   ERROR: "error",

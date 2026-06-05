@@ -8,7 +8,7 @@ export const config = {
   openRouterVisionModel:
     process.env.OPENROUTER_VISION_MODEL ?? "google/gemini-3.1-flash-lite",
   openRouterImageModel:
-    process.env.OPENROUTER_IMAGE_MODEL ?? "x-ai/grok-imagine-image-quality",
+    process.env.OPENROUTER_IMAGE_MODEL ?? "google/gemini-2.5-flash-image",
   supabaseUrl: process.env.SUPABASE_URL ?? "",
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
   demoAuthBypass: process.env.DEMO_AUTH_BYPASS === "true",

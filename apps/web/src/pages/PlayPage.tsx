@@ -1,4 +1,4 @@
-import { CLIENT_EVENTS } from "@drift/shared";
+import { CLIENT_EVENTS, type TurnWaitingPayload } from "@drift/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { DrawCanvas } from "../components/DrawCanvas";
@@ -27,19 +27,17 @@ export function PlayPage({ accessToken, email }: Props) {
     codeFromUrl || (cached?.path === "/play" ? cached.roomCode : "") || ""
   );
   const [joined, setJoined] = useState(false);
-  const pendingRejoin = Boolean(
-    cached?.path === "/play" && cached.roomCode.length >= 4
-  );
-  const rejoinAttempted = useRef(false);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [exportTrigger, setExportTrigger] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const submitLock = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { connected, room, roundStart, generating, emit } = useGameSocket(
-    accessToken,
-    name
-  );
+  const { connected, room, roundStart, turnWaiting, generating, aiImageReady, emit } =
+    useGameSocket(accessToken, name);
+
+  const isMyTurn =
+    Boolean(room?.config.activePlayerId && playerId === room.config.activePlayerId);
 
   const deadlineLeft = useMemo(() => {
     if (!roundStart?.deadline) return null;
@@ -56,11 +54,12 @@ export function PlayPage({ accessToken, email }: Props) {
   const join = async () => {
     setError(null);
     try {
+      const displayName = name.trim();
       const res = await emit<{ roomId: string; playerId: string }>(
         CLIENT_EVENTS.JOIN_ROOM,
         {
           code: code.toUpperCase(),
-          name,
+          name: displayName,
           accessToken,
         }
       );
@@ -70,46 +69,26 @@ export function PlayPage({ accessToken, email }: Props) {
         saveDemoSession({
           path: "/play",
           roomCode: code.toUpperCase(),
-          displayName: name,
+          displayName: displayName,
           playerId: res.playerId,
         });
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Join failed");
+      const msg = e instanceof Error ? e.message : "Join failed";
+      if (demoAuthBypass && msg.includes("Room not found")) clearDemoSession();
+      setError(msg);
     }
   };
 
   useEffect(() => {
-    if (!demoAuthBypass || !connected || joined || rejoinAttempted.current) return;
+    if (!demoAuthBypass) return;
     const session = loadDemoSession();
-    const roomCode = (codeFromUrl || code || session?.roomCode || "").toUpperCase();
-    if (session?.path !== "/play" || roomCode.length < 4) return;
-    rejoinAttempted.current = true;
-    if (session.displayName) setName(session.displayName);
-    setCode(roomCode);
-    void (async () => {
-      setError(null);
-      try {
-        const res = await emit<{ roomId: string; playerId: string }>(
-          CLIENT_EVENTS.JOIN_ROOM,
-          { code: roomCode, name: session.displayName || name, accessToken }
-        );
-        setPlayerId(res.playerId);
-        setJoined(true);
-        saveDemoSession({
-          path: "/play",
-          roomCode,
-          displayName: session.displayName || name,
-          playerId: res.playerId,
-        });
-      } catch (e) {
-        rejoinAttempted.current = false;
-        const msg = e instanceof Error ? e.message : "Rejoin failed";
-        if (msg.includes("Room not found")) clearDemoSession();
-        setError(msg);
-      }
-    })();
-  }, [connected, joined, demoAuthBypass, codeFromUrl, code, accessToken, name, emit]);
+    const roomCode = (codeFromUrl || session?.roomCode || "").toUpperCase();
+    if (roomCode.length >= 4) setCode(roomCode);
+    if (session?.path === "/play" && session.displayName) {
+      setName(session.displayName);
+    }
+  }, [demoAuthBypass, codeFromUrl]);
 
   useEffect(() => {
     if (!room || !demoAuthBypass) return;
@@ -121,30 +100,45 @@ export function PlayPage({ accessToken, email }: Props) {
     });
   }, [room?.code, name, playerId, demoAuthBypass]);
 
+  useEffect(() => {
+    if (room?.state === "DRAWING" && isMyTurn) {
+      submitLock.current = false;
+    }
+  }, [room?.round, room?.state, isMyTurn]);
+
   const uploadAndSubmit = useCallback(
     async (blob: Blob) => {
       if (!room) return;
       if (!playerId) return;
+      if (submitLock.current || submitting) return;
+      if (room.state !== "DRAWING" || !isMyTurn) return;
+      submitLock.current = true;
       setSubmitting(true);
-      const form = new FormData();
-      form.append("file", blob, "drawing.png");
-      form.append("roomCode", room.code);
-      form.append("playerId", playerId);
+      try {
+        const form = new FormData();
+        form.append("file", blob, "drawing.png");
+        form.append("roomCode", room.code);
+        form.append("playerId", playerId);
 
-      const res = await fetch(`${API_URL}/api/drawing`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: form,
-      });
-      const data = (await res.json()) as { drawingUrl?: string; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Upload failed");
+        const res = await fetch(`${API_URL}/api/drawing`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: form,
+        });
+        const data = (await res.json()) as { drawingUrl?: string; error?: string };
+        if (!res.ok) throw new Error(data.error ?? "Upload failed");
 
-      await emit(CLIENT_EVENTS.SUBMIT_DRAWING, {
-        drawingUrl: data.drawingUrl,
-      });
-      setSubmitting(false);
+        await emit(CLIENT_EVENTS.SUBMIT_DRAWING, {
+          drawingUrl: data.drawingUrl,
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Submit failed");
+      } finally {
+        submitLock.current = false;
+        setSubmitting(false);
+      }
     },
-    [room, playerId, accessToken, emit]
+    [room, playerId, accessToken, emit, submitting, isMyTurn]
   );
 
   const onExport = useCallback(
@@ -170,18 +164,19 @@ export function PlayPage({ accessToken, email }: Props) {
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             placeholder="ABCDEF"
           />
+          {demoAuthBypass && code.length >= 4 && (
+            <p className="muted" style={{ marginTop: "0.75rem" }}>
+              Edit your name, then tap Join to enter the room.
+            </p>
+          )}
           <button
             type="button"
             className="btn"
             style={{ marginTop: "1rem", width: "100%" }}
-            disabled={!connected || code.length < 4 || pendingRejoin}
+            disabled={!connected || code.length < 4 || !name.trim()}
             onClick={() => void join()}
           >
-            {pendingRejoin && connected
-              ? "Rejoining…"
-              : connected
-                ? "Join"
-                : "Connecting…"}
+            {connected ? "Join" : "Connecting…"}
           </button>
           {error && <p style={{ color: "crimson" }}>{error}</p>}
         </div>
@@ -204,14 +199,53 @@ export function PlayPage({ accessToken, email }: Props) {
   }
 
   if (generating || room?.state === "GENERATING") {
+    const who =
+      turnWaiting?.activePlayerName ??
+      room?.players.find((p) => p.id === room.config.activePlayerId)?.name;
     return (
       <div className="page">
-        <h1>Reimagining…</h1>
-        <p className="muted">The AI is interpreting your doodle.</p>
-        {generating && (
-          <p className="countdown">
-            {generating.completed}/{generating.count}
+        <h1>{aiImageReady ? "AI result" : "Reimagining…"}</h1>
+        {!aiImageReady && (
+          <p className="muted">
+            AI is turning {who ? `${who}'s` : "the"} doodle into an image.
           </p>
+        )}
+        {aiImageReady && (
+          <img
+            className="ref-image"
+            src={aiImageReady.imageUrl}
+            alt="AI reimagining"
+          />
+        )}
+      </div>
+    );
+  }
+
+  if (
+    room?.state === "DRAWING" &&
+    !roundStart &&
+    (turnWaiting || (room.config.activePlayerId && !isMyTurn))
+  ) {
+    const wait: TurnWaitingPayload = turnWaiting ?? {
+      round: room.round,
+      totalTurns: room.config.numRounds,
+      activePlayerId: room.config.activePlayerId ?? "",
+      activePlayerName:
+        room.players.find((p) => p.id === room.config.activePlayerId)?.name ??
+        "Someone",
+      promptType: "redraw",
+    };
+    return (
+      <div className="page">
+        <h1>Wait your turn</h1>
+        <p className="muted">
+          {wait.activePlayerName} is drawing ({wait.round}/{wait.totalTurns})
+        </p>
+        {wait.promptType === "word" && wait.word && (
+          <p className="muted">Prompt: {wait.word}</p>
+        )}
+        {wait.promptType === "redraw" && wait.image && (
+          <img className="ref-image" src={wait.image} alt="Reference" />
         )}
       </div>
     );
@@ -226,14 +260,17 @@ export function PlayPage({ accessToken, email }: Props) {
     );
   }
 
-  if (roundStart && room?.state === "DRAWING") {
+  if (roundStart && room?.state === "DRAWING" && isMyTurn) {
     return (
       <div className="page">
+        <p className="muted">
+          Your turn ({roundStart.round}/{roundStart.totalTurns})
+        </p>
         {roundStart.type === "word" ? (
           <div className="word-prompt">Draw: {roundStart.word}</div>
         ) : (
           <>
-            <p className="label">Redraw what you see</p>
+            <p className="label">Copy this AI image with your doodle</p>
             {roundStart.image && (
               <img className="ref-image" src={roundStart.image} alt="Reference" />
             )}

@@ -1,9 +1,11 @@
 import {
   SERVER_EVENTS,
+  type AiImageReadyPayload,
   type GeneratingPayload,
   type RevealStepPayload,
   type RoomSnapshot,
   type RoundStartPayload,
+  type TurnWaitingPayload,
 } from "@drift/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
@@ -14,7 +16,11 @@ export function useGameSocket(accessToken: string | null, displayName: string) {
   const [connected, setConnected] = useState(false);
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
   const [roundStart, setRoundStart] = useState<RoundStartPayload | null>(null);
+  const [turnWaiting, setTurnWaiting] = useState<TurnWaitingPayload | null>(null);
   const [generating, setGenerating] = useState<GeneratingPayload | null>(null);
+  const [aiImageReady, setAiImageReady] = useState<AiImageReadyPayload | null>(
+    null
+  );
   const [revealStep, setRevealStep] = useState<RevealStepPayload | null>(null);
 
   useEffect(() => {
@@ -36,12 +42,25 @@ export function useGameSocket(accessToken: string | null, displayName: string) {
 
     socket.on(SERVER_EVENTS.ROUND_START, (payload: RoundStartPayload) => {
       setRoundStart(payload);
+      setTurnWaiting(null);
       setGenerating(null);
+      setAiImageReady(null);
+    });
+
+    socket.on(SERVER_EVENTS.TURN_WAITING, (payload: TurnWaitingPayload) => {
+      setTurnWaiting(payload);
+      setRoundStart(null);
     });
 
     socket.on(SERVER_EVENTS.GENERATING, (payload: GeneratingPayload) => {
       setGenerating(payload);
       setRoundStart(null);
+      setTurnWaiting(null);
+      setAiImageReady(null);
+    });
+
+    socket.on(SERVER_EVENTS.AI_IMAGE_READY, (payload: AiImageReadyPayload) => {
+      setAiImageReady(payload);
     });
 
     socket.on(SERVER_EVENTS.REVEAL_STEP, (payload: RevealStepPayload) => {
@@ -51,7 +70,9 @@ export function useGameSocket(accessToken: string | null, displayName: string) {
     socket.on(SERVER_EVENTS.GAME_OVER, (payload: { room: RoomSnapshot }) => {
       setRoom(payload.room);
       setRoundStart(null);
+      setTurnWaiting(null);
       setGenerating(null);
+      setAiImageReady(null);
     });
 
     return () => {
@@ -84,7 +105,9 @@ export function useGameSocket(accessToken: string | null, displayName: string) {
     connected,
     room,
     roundStart,
+    turnWaiting,
     generating,
+    aiImageReady,
     revealStep,
     emit,
     setRoom,

@@ -4,6 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${ROOT}/.env"
 
+if [[ -f "$HOME/.railway/env" ]]; then
+  # shellcheck source=/dev/null
+  source "$HOME/.railway/env"
+fi
+
+RAILWAY="${RAILWAY:-railway}"
+if ! command -v "$RAILWAY" >/dev/null 2>&1; then
+  RAILWAY="npx @railway/cli@latest"
+fi
+
 KEYS=(
   PORT
   NODE_ENV

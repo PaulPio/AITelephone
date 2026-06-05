@@ -191,6 +191,31 @@ export class RoomRepository {
     }
   }
 
+  /** One shared chain for sequential broken-telephone (prompt → P1 → AI → P2 → …). */
+  async createSingleChain(roomId: string, seedWord: string): Promise<string> {
+    const { data: chain, error } = await supabase
+      .from("chains")
+      .insert({
+        room_id: roomId,
+        chain_index: 0,
+        seed_word: seedWord,
+      })
+      .select()
+      .single();
+
+    if (error || !chain) throw new Error(error?.message ?? "Chain create failed");
+
+    await supabase.from("links").insert({
+      chain_id: chain.id,
+      round: 0,
+      type: "word",
+      author_player_id: null,
+      content: seedWord,
+    });
+
+    return chain.id;
+  }
+
   async addLink(
     chainId: string,
     round: number,
