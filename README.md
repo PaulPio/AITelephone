@@ -36,7 +36,7 @@ If the default QUIC tunnel seems to interfere with WiFi or internet access, forc
 ## Current Demo
 
 - Host creates a room and can also play.
-- Up to 10 players can join a room.
+- 2 to 10 players can join a room.
 - Host can start the game, reset to lobby, and move through the reveal.
 - Players can submit up to three prompt ideas before the game starts.
 - Prompt choices exclude the player's own submitted prompts.

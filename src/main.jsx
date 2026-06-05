@@ -151,7 +151,7 @@ function stateLabel(room) {
 }
 
 function Lobby({ room, isHost }) {
-  const canStart = room.players.length >= 1 && room.players.length <= room.config.maxPlayers;
+  const canStart = room.players.length >= room.config.minPlayers && room.players.length <= room.config.maxPlayers;
   const joinUrl = `${location.origin}?room=${room.code}`;
   return (
     <div className="panel lobby">
@@ -162,6 +162,7 @@ function Lobby({ room, isHost }) {
       </div>
       <div className="status-strip">
         <span><Users size={18} /> {room.players.length}/{room.config.maxPlayers} players</span>
+        <span>Minimum {room.config.minPlayers} players</span>
         <span>Host can play and manage the room</span>
       </div>
       <PromptBuilder />

@@ -155,6 +155,7 @@ function createRoom(hostName) {
       numRounds: 5,
       drawTimerSec: 30,
       describeTimerSec: 30,
+      minPlayers: 2,
       chooseTimerSec: 20,
       maxPlayers: 10
     },
@@ -168,7 +169,7 @@ function createRoom(hostName) {
 }
 
 function startGame(room) {
-  if (room.players.length < 1 || room.players.length > room.config.maxPlayers) return;
+  if (room.players.length < room.config.minPlayers || room.players.length > room.config.maxPlayers) return;
   room.promptOptions = {};
   room.chains = room.players.map((player, index) => ({
     id: `chain-${index + 1}`,
