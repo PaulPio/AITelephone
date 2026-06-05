@@ -286,7 +286,7 @@ function finishPromptChoice(room) {
   room.players.forEach((player, index) => {
     const chain = room.chains[index];
     if (!chain) return;
-    const options = room.promptOptions[player.id] || pickPromptOptions(seedWords, index);
+    const options = room.promptOptions[player.id] || seedWords.slice(index, index + 3);
     const selected = cleanPrompt(room.submissions.get(player.id)?.prompt) || options[0] || seedWords[index % seedWords.length];
     chain.seedWord = selected;
     chain.links = [{

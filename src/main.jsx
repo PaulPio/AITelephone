@@ -232,18 +232,19 @@ function PromptChoice({ room, task, playerId }) {
   const [timeLeft, setTimeLeft] = useState(0);
   const player = room.players.find((item) => item.id === playerId);
   const submitted = Boolean(player?.submitted);
-  const options = task?.options || [];
+  const activeTask = task?.mode === 'choosing' ? task : null;
+  const options = activeTask?.options || [];
 
   useEffect(() => {
     setSelected('');
   }, [room.state]);
 
   useEffect(() => {
-    const tick = () => setTimeLeft(Math.max(0, Math.ceil(((task?.deadline || Date.now()) - Date.now()) / 1000)));
+    const tick = () => setTimeLeft(Math.max(0, Math.ceil(((activeTask?.deadline || Date.now()) - Date.now()) / 1000)));
     tick();
     const timer = setInterval(tick, 250);
     return () => clearInterval(timer);
-  }, [task?.deadline]);
+  }, [activeTask?.deadline]);
 
   function choosePrompt(prompt) {
     if (submitted) return;
@@ -285,6 +286,7 @@ function DrawingRound({ room, task, playerId }) {
   const canvasRef = useRef(null);
   const submittedRef = useRef(false);
   const player = room.players.find((item) => item.id === playerId);
+  const activeTask = task?.mode === 'drawing' && task.round === room.round ? task : null;
 
   useEffect(() => {
     const nextSubmitted = Boolean(player?.submitted);
@@ -294,16 +296,16 @@ function DrawingRound({ room, task, playerId }) {
 
   useEffect(() => {
     const tick = () => {
-      const remaining = Math.max(0, Math.ceil(((task?.deadline || Date.now()) - Date.now()) / 1000));
+      const remaining = Math.max(0, Math.ceil(((activeTask?.deadline || Date.now()) - Date.now()) / 1000));
       setTimeLeft(remaining);
-      if (task?.deadline && Date.now() >= task.deadline && !submittedRef.current) {
+      if (activeTask?.deadline && Date.now() >= activeTask.deadline && !submittedRef.current) {
         submitDrawing();
       }
     };
     tick();
     const timer = setInterval(tick, 250);
     return () => clearInterval(timer);
-  }, [task?.deadline]);
+  }, [activeTask?.deadline]);
 
   async function submitDrawing() {
     if (submittedRef.current || !canvasRef.current) return;
@@ -322,7 +324,7 @@ function DrawingRound({ room, task, playerId }) {
       <section className="panel prompt-panel">
         <div>
           <p className="eyebrow">Round {task?.round || room.round}</p>
-          <h1>Draw: {task?.prompt || 'a mysterious cursed thing'}</h1>
+          <h1>Draw: {activeTask?.prompt || 'Loading prompt...'}</h1>
         </div>
         <div className={`timer ${timeLeft <= 5 ? 'danger' : ''}`}>{timeLeft}s</div>
       </section>
@@ -366,6 +368,7 @@ function DescriptionRound({ room, task, playerId }) {
   const submittedRef = useRef(false);
   const descriptionRef = useRef('');
   const player = room.players.find((item) => item.id === playerId);
+  const activeTask = task?.mode === 'describing' && task.round === room.round ? task : null;
 
   useEffect(() => {
     const nextSubmitted = Boolean(player?.submitted);
@@ -376,20 +379,20 @@ function DescriptionRound({ room, task, playerId }) {
   useEffect(() => {
     setDescription('');
     descriptionRef.current = '';
-  }, [room.round, task?.chainId]);
+  }, [room.round, activeTask?.chainId]);
 
   useEffect(() => {
     const tick = () => {
-      const remaining = Math.max(0, Math.ceil(((task?.deadline || Date.now()) - Date.now()) / 1000));
+      const remaining = Math.max(0, Math.ceil(((activeTask?.deadline || Date.now()) - Date.now()) / 1000));
       setTimeLeft(remaining);
-      if (task?.deadline && Date.now() >= task.deadline && !submittedRef.current) {
+      if (activeTask?.deadline && Date.now() >= activeTask.deadline && !submittedRef.current) {
         submitDescription();
       }
     };
     tick();
     const timer = setInterval(tick, 250);
     return () => clearInterval(timer);
-  }, [task?.deadline]);
+  }, [activeTask?.deadline]);
 
   function submitDescription() {
     if (submittedRef.current) return;
@@ -409,7 +412,7 @@ function DescriptionRound({ room, task, playerId }) {
       </section>
       <section className="describe-layout">
         <div className="describe-image">
-          {task?.imageUrl && <img src={task.imageUrl} alt="Image to describe" />}
+          {activeTask?.imageUrl && <img src={activeTask.imageUrl} alt="Image to describe" />}
         </div>
         <div className="panel describe-form">
           <label>
