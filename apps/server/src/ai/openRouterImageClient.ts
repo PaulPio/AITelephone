@@ -4,6 +4,7 @@ import { extractImageBufferFromOpenRouterCompletion } from "./extractImageBuffer
 export type TransformContext = {
   playerName?: string;
   turn?: number;
+  chainIndex?: number;
   seedWord?: string;
 };
 

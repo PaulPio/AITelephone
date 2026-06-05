@@ -113,11 +113,14 @@ export async function transformDoodle(
 ): Promise<string> {
 
   const turn = ctx.turn ?? 0;
+  const chainIndex = ctx.chainIndex ?? 0;
 
-  return runTurnTransformOnce(roomId, turn, () =>
+  if (config.skipAi) {
+    return runTurnTransformOnce(roomId, turn, chainIndex, async () => drawingUrl);
+  }
 
+  return runTurnTransformOnce(roomId, turn, chainIndex, () =>
     generateOnce(drawingUrl, roomId, styleSuffix, ctx)
-
   );
 
 }

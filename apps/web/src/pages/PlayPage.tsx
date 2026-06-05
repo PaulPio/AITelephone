@@ -1,8 +1,8 @@
-import { CLIENT_EVENTS, type TurnWaitingPayload } from "@drift/shared";
+import { CLIENT_EVENTS, deriveRoundStartForPlayer } from "@drift/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { DrawCanvas } from "../components/DrawCanvas";
-import { API_URL } from "../lib/config";
+import { API_URL, skipAiMode } from "../lib/config";
 import {
   clearDemoSession,
   loadDemoSession,
@@ -32,24 +32,32 @@ export function PlayPage({ accessToken, email }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const submitLock = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [, setTick] = useState(0);
 
-  const { connected, room, roundStart, turnWaiting, generating, aiImageReady, emit } =
+  const { connected, room, roundStart, generating, emit } =
     useGameSocket(accessToken, name);
 
-  const isMyTurn =
-    Boolean(room?.config.activePlayerId && playerId === room.config.activePlayerId);
+  const myPlayer = room?.players.find((p) => p.id === playerId);
+
+  const effectiveRoundStart = useMemo(() => {
+    if (roundStart) return roundStart;
+    if (!room || !playerId) return null;
+    return deriveRoundStartForPlayer(room, playerId, room.deadline);
+  }, [roundStart, room, playerId]);
 
   const deadlineLeft = useMemo(() => {
-    if (!roundStart?.deadline) return null;
-    const ms = new Date(roundStart.deadline).getTime() - Date.now();
+    const deadline = effectiveRoundStart?.deadline ?? room?.deadline;
+    if (!deadline) return null;
+    const ms = new Date(deadline).getTime() - Date.now();
     return Math.max(0, Math.ceil(ms / 1000));
-  }, [roundStart?.deadline, room?.state]);
+  }, [effectiveRoundStart?.deadline, room?.deadline, room?.state]);
 
   useEffect(() => {
-    if (!roundStart?.deadline) return;
-    const id = setInterval(() => {}, 500);
+    const deadline = effectiveRoundStart?.deadline ?? room?.deadline;
+    if (!deadline) return;
+    const id = setInterval(() => setTick((n) => n + 1), 500);
     return () => clearInterval(id);
-  }, [roundStart?.deadline]);
+  }, [effectiveRoundStart?.deadline, room?.deadline]);
 
   const join = async () => {
     setError(null);
@@ -101,17 +109,18 @@ export function PlayPage({ accessToken, email }: Props) {
   }, [room?.code, name, playerId, demoAuthBypass]);
 
   useEffect(() => {
-    if (room?.state === "DRAWING" && isMyTurn) {
+    if (room?.state === "DRAWING" && !myPlayer?.submitted) {
       submitLock.current = false;
     }
-  }, [room?.round, room?.state, isMyTurn]);
+  }, [room?.round, room?.state, myPlayer?.submitted]);
 
   const uploadAndSubmit = useCallback(
     async (blob: Blob) => {
       if (!room) return;
       if (!playerId) return;
       if (submitLock.current || submitting) return;
-      if (room.state !== "DRAWING" || !isMyTurn) return;
+      if (room.state !== "DRAWING") return;
+      if (myPlayer?.submitted) return;
       submitLock.current = true;
       setSubmitting(true);
       try {
@@ -138,7 +147,7 @@ export function PlayPage({ accessToken, email }: Props) {
         setSubmitting(false);
       }
     },
-    [room, playerId, accessToken, emit, submitting, isMyTurn]
+    [room, playerId, accessToken, emit, submitting, myPlayer?.submitted]
   );
 
   const onExport = useCallback(
@@ -199,54 +208,32 @@ export function PlayPage({ accessToken, email }: Props) {
   }
 
   if (generating || room?.state === "GENERATING") {
-    const who =
-      turnWaiting?.activePlayerName ??
-      room?.players.find((p) => p.id === room.config.activePlayerId)?.name;
+    const progress =
+      generating && generating.count > 0
+        ? `${generating.completed}/${generating.count}`
+        : null;
     return (
       <div className="page">
-        <h1>{aiImageReady ? "AI result" : "Reimagining…"}</h1>
-        {!aiImageReady && (
-          <p className="muted">
-            AI is turning {who ? `${who}'s` : "the"} doodle into an image.
-          </p>
-        )}
-        {aiImageReady && (
-          <img
-            className="ref-image"
-            src={aiImageReady.imageUrl}
-            alt="AI reimagining"
-          />
-        )}
+        <h1>{skipAiMode ? "Next round…" : "Reimagining…"}</h1>
+        <p className="muted">
+          {skipAiMode
+            ? "Collecting drawings and starting the next round"
+            : "AI is turning everyone's doodles into images"}
+          {progress ? ` (${progress})` : ""}.
+        </p>
+        <p className="muted">Hang tight — the next round starts soon.</p>
       </div>
     );
   }
 
-  if (
-    room?.state === "DRAWING" &&
-    !roundStart &&
-    (turnWaiting || (room.config.activePlayerId && !isMyTurn))
-  ) {
-    const wait: TurnWaitingPayload = turnWaiting ?? {
-      round: room.round,
-      totalTurns: room.config.numRounds,
-      activePlayerId: room.config.activePlayerId ?? "",
-      activePlayerName:
-        room.players.find((p) => p.id === room.config.activePlayerId)?.name ??
-        "Someone",
-      promptType: "redraw",
-    };
+  if (room?.state === "DRAWING" && myPlayer?.submitted) {
+    const others = room.players.filter((p) => !p.submitted).length;
     return (
       <div className="page">
-        <h1>Wait your turn</h1>
+        <h1>Submitted ✓</h1>
         <p className="muted">
-          {wait.activePlayerName} is drawing ({wait.round}/{wait.totalTurns})
+          Waiting for {others === 0 ? "the timer" : `${others} player${others === 1 ? "" : "s"}`}…
         </p>
-        {wait.promptType === "word" && wait.word && (
-          <p className="muted">Prompt: {wait.word}</p>
-        )}
-        {wait.promptType === "redraw" && wait.image && (
-          <img className="ref-image" src={wait.image} alt="Reference" />
-        )}
       </div>
     );
   }
@@ -260,19 +247,27 @@ export function PlayPage({ accessToken, email }: Props) {
     );
   }
 
-  if (roundStart && room?.state === "DRAWING" && isMyTurn) {
+  if (effectiveRoundStart && room?.state === "DRAWING") {
     return (
       <div className="page">
         <p className="muted">
-          Your turn ({roundStart.round}/{roundStart.totalTurns})
+          Round {effectiveRoundStart.round}/{effectiveRoundStart.totalTurns} — draw now!
         </p>
-        {roundStart.type === "word" ? (
-          <div className="word-prompt">Draw: {roundStart.word}</div>
+        {effectiveRoundStart.type === "word" ? (
+          <div className="word-prompt">Draw: {effectiveRoundStart.word}</div>
         ) : (
           <>
-            <p className="label">Copy this AI image with your doodle</p>
-            {roundStart.image && (
-              <img className="ref-image" src={roundStart.image} alt="Reference" />
+            <p className="label">
+              {skipAiMode
+                ? "Redraw what you see with your doodle"
+                : "Copy this AI image with your doodle"}
+            </p>
+            {effectiveRoundStart.image && (
+              <img
+                className="ref-image"
+                src={effectiveRoundStart.image}
+                alt="Reference"
+              />
             )}
           </>
         )}
@@ -291,6 +286,7 @@ export function PlayPage({ accessToken, email }: Props) {
         >
           {submitting ? "Submitting…" : "Submit drawing"}
         </button>
+        {error && <p style={{ color: "crimson", marginTop: "0.75rem" }}>{error}</p>}
       </div>
     );
   }

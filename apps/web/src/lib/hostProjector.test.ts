@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RoomSnapshot } from "@drift/shared";
 import { buildHostProjectorView } from "./hostProjector.js";
 
-function makeRoom(overrides: Partial<RoomSnapshot> & { seedWord?: string }): RoomSnapshot {
-  const seedWord = overrides.seedWord ?? "dragon";
-  const { seedWord: _s, ...roomOverrides } = overrides;
+function makeRoom(overrides: Partial<RoomSnapshot> = {}): RoomSnapshot {
   return {
     id: "room-1",
     code: "ABCDEF",
@@ -17,7 +15,6 @@ function makeRoom(overrides: Partial<RoomSnapshot> & { seedWord?: string }): Roo
       drawTimerSec: 30,
       numRounds: 3,
       styleSuffix: "vivid",
-      activePlayerId: "host-id",
     },
     players: [
       {
@@ -33,98 +30,39 @@ function makeRoom(overrides: Partial<RoomSnapshot> & { seedWord?: string }): Roo
         name: "Player2",
         displayIndex: 1,
         connected: true,
-        submitted: false,
+        submitted: true,
         isHost: false,
       },
     ],
     chains: [
-      {
-        id: "chain-1",
-        chainIndex: 0,
-        seedWord,
-        links: [],
-      },
+      { id: "chain-1", chainIndex: 0, seedWord: "pizza", links: [] },
+      { id: "chain-2", chainIndex: 1, seedWord: "cat", links: [] },
     ],
     revealChainIndex: 0,
     deadline: null,
-    ...roomOverrides,
+    ...overrides,
   };
 }
 
 describe("buildHostProjectorView", () => {
-  it("shows seed word on turn 1 when host is the active drawer", () => {
-    const view = buildHostProjectorView(makeRoom({ round: 1, seedWord: "pizza" }));
+  it("shows parallel drawing status with submission count", () => {
+    const view = buildHostProjectorView(makeRoom({ round: 2 }));
 
     expect(view).toMatchObject({
       phase: "drawing",
-      promptType: "word",
-      word: "pizza",
-      activePlayerName: "Host",
-      round: 1,
-      totalTurns: 3,
+      round: 2,
+      totalRounds: 3,
+      submittedCount: 1,
+      playerCount: 2,
     });
   });
 
-  it("shows latest AI image on redraw turns", () => {
-    const room = makeRoom({
-      round: 2,
-      chains: [
-        {
-          id: "chain-1",
-          chainIndex: 0,
-          seedWord: "pizza",
-          links: [
-            {
-              id: "img-1",
-              type: "image",
-              authorId: null,
-              content: "https://cdn.example/ai-1.png",
-              round: 1,
-              createdAt: "2026-01-01T00:00:00Z",
-            },
-          ],
-        },
-      ],
-    });
-
-    const view = buildHostProjectorView(room);
-    expect(view).toMatchObject({
-      phase: "drawing",
-      promptType: "redraw",
-      imageUrl: "https://cdn.example/ai-1.png",
-      round: 2,
-    });
-  });
-
-  it("shows submitted doodle while generating", () => {
-    const room = makeRoom({
-      state: "GENERATING",
-      round: 1,
-      chains: [
-        {
-          id: "chain-1",
-          chainIndex: 0,
-          seedWord: "pizza",
-          links: [
-            {
-              id: "draw-1",
-              type: "drawing",
-              authorId: "host-id",
-              authorName: "Host",
-              content: "https://cdn.example/doodle.png",
-              round: 1,
-              createdAt: "2026-01-01T00:00:00Z",
-            },
-          ],
-        },
-      ],
-    });
-
-    const view = buildHostProjectorView(room);
+  it("shows generating phase", () => {
+    const view = buildHostProjectorView(makeRoom({ state: "GENERATING" }));
     expect(view).toMatchObject({
       phase: "generating",
-      drawingUrl: "https://cdn.example/doodle.png",
-      activePlayerName: "Host",
+      round: 1,
+      playerCount: 2,
     });
   });
 

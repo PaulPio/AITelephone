@@ -62,6 +62,7 @@ export function registerSocketHandlers(io: Server, engine: GameEngine) {
         socket.join(`room:${room.id}`);
         ack?.({ roomId: room.id, playerId, isHost });
         await engine.broadcastRoom(room.id);
+        await engine.syncDrawingRound(room.id, socket, playerId);
       } catch (e) {
         ack?.({ error: e instanceof Error ? e.message : "Failed" });
       }

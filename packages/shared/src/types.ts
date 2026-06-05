@@ -11,10 +11,10 @@ export type RoundStartType = "word" | "redraw";
 
 export interface RoomConfig {
   drawTimerSec: number;
-  /** Total player turns (one draw per player). */
+  /** Drawing rounds (one per player in parallel Latin-square mode). */
   numRounds: number;
   styleSuffix: string;
-  /** Player whose turn it is to draw (sequential telephone). */
+  /** Legacy field; unused in parallel mode. */
   activePlayerId?: string | null;
 }
 

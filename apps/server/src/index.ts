@@ -12,7 +12,7 @@ app.use(cors({ origin: config.corsOrigin, credentials: true }));
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "drift-server" });
+  res.json({ ok: true, service: "drift-server", skipAi: config.skipAi });
 });
 
 app.use("/api/drawing", drawingsRouter);
@@ -27,4 +27,7 @@ registerSocketHandlers(io, engine);
 
 httpServer.listen(config.port, "0.0.0.0", () => {
   console.log(`DRIFT server listening on 0.0.0.0:${config.port}`);
+  if (config.skipAi) {
+    console.log("SKIP_AI=true — canvas pass-through mode (no OpenRouter)");
+  }
 });

@@ -1,14 +1,14 @@
 import {
+  chainIndexForPlayer,
   pickSeedWords,
   SERVER_EVENTS,
-  type AiImageReadyPayload,
   type GeneratingPayload,
+  type PlayerSnapshot,
   type RevealStepPayload,
   type RoomSnapshot,
   type RoundStartPayload,
-  type TurnWaitingPayload,
 } from "@drift/shared";
-import type { Server } from "socket.io";
+import type { Server, Socket } from "socket.io";
 import { config } from "../config.js";
 import { transformDoodle } from "../ai/driftImagePipeline.js";
 import {
@@ -20,6 +20,8 @@ import { RoomRepository } from "./RoomRepository.js";
 import {
   BLANK_DRAWING,
   canSupersedeBlankDrawing,
+  chainForPlayer,
+  latestDrawingForRound,
 } from "./turnSubmission.js";
 
 type TimerHandle = ReturnType<typeof setTimeout>;
@@ -31,7 +33,7 @@ export class GameEngine {
   private readonly repo = new RoomRepository();
   private readonly timers = new Map<string, TimerHandle>();
   private readonly deadlines = new Map<string, string>();
-  /** One in-flight generation job per room+turn (all callers await the same work). */
+  /** One in-flight generation job per room+round. */
   private readonly generationJobs = new Map<string, Promise<void>>();
   /** Bumped when a late real drawing replaces a timer blank — stale jobs must not commit. */
   private readonly generationVersion = new Map<string, number>();
@@ -45,18 +47,18 @@ export class GameEngine {
     return `room:${roomId}`;
   }
 
-  private roomTurnKey(roomId: string, turn: number) {
-    return turnAiKey(roomId, turn);
+  private roomRoundKey(roomId: string, round: number) {
+    return turnAiKey(roomId, round);
   }
 
-  private bumpGenerationVersion(turnKey: string): number {
-    const next = (this.generationVersion.get(turnKey) ?? 0) + 1;
-    this.generationVersion.set(turnKey, next);
+  private bumpGenerationVersion(roundKey: string): number {
+    const next = (this.generationVersion.get(roundKey) ?? 0) + 1;
+    this.generationVersion.set(roundKey, next);
     return next;
   }
 
-  private isGenerationCurrent(turnKey: string, version: number): boolean {
-    return this.generationVersion.get(turnKey) === version;
+  private isGenerationCurrent(roundKey: string, version: number): boolean {
+    return this.generationVersion.get(roundKey) === version;
   }
 
   private imageUrlForRound(
@@ -69,41 +71,42 @@ export class GameEngine {
     return link?.content;
   }
 
-  private broadcastAiImageReady(
-    roomId: string,
-    round: number,
-    imageUrl: string
-  ): void {
-    const payload: AiImageReadyPayload = { round, imageUrl };
-    this.io
-      .to(this.roomChannel(roomId))
-      .emit(SERVER_EVENTS.AI_IMAGE_READY, payload);
-  }
-
   private sortedPlayers(room: RoomSnapshot) {
     return [...room.players].sort((a, b) => a.displayIndex - b.displayIndex);
   }
 
-  private mainChain(room: RoomSnapshot) {
-    const chain = room.chains.find((c) => c.chainIndex === 0);
-    if (!chain) throw new Error("Game chain missing");
-    return chain;
-  }
+  private buildRoundStartForPlayer(
+    room: RoomSnapshot,
+    player: PlayerSnapshot,
+    deadline: string
+  ): RoundStartPayload {
+    const n = room.players.length;
+    const chainIdx = chainIndexForPlayer(player.displayIndex, room.round, n);
+    const chain = room.chains.find((c) => c.chainIndex === chainIdx)!;
 
-  private latestImage(chain: RoomSnapshot["chains"][0]) {
+    const base = {
+      deadline,
+      round: room.round,
+      totalTurns: room.config.numRounds,
+      chainId: chain.id,
+      playerName: player.name,
+    };
+
+    if (room.round === 1) {
+      return { type: "word", word: chain.seedWord, ...base };
+    }
+
     const images = chain.links.filter((l) => l.type === "image");
-    return images[images.length - 1];
+    const ref = images[images.length - 1];
+    return {
+      type: "redraw",
+      image: ref?.content ?? "",
+      ...base,
+    };
   }
 
-  private async setActivePlayer(
-    roomId: string,
-    activePlayerId: string | null
-  ): Promise<RoomSnapshot> {
-    const room = await this.repo.loadRoom(roomId);
-    await this.repo.updateRoomState(roomId, {
-      config: { ...room.config, activePlayerId },
-    });
-    return this.repo.loadRoom(roomId);
+  private allPlayersSubmitted(room: RoomSnapshot): boolean {
+    return room.players.length > 0 && room.players.every((p) => p.submitted);
   }
 
   async broadcastRoom(roomId: string): Promise<RoomSnapshot> {
@@ -114,6 +117,25 @@ export class GameEngine {
       room: payload,
     });
     return payload;
+  }
+
+  /** Send personalized round start after join/reconnect during DRAWING. */
+  async syncDrawingRound(
+    roomId: string,
+    socket: Socket,
+    playerId: string
+  ): Promise<void> {
+    const room = await this.repo.loadRoom(roomId);
+    if (room.state !== "DRAWING") return;
+
+    const player = room.players.find((p) => p.id === playerId);
+    const deadline = this.deadlines.get(roomId);
+    if (!player || !deadline) return;
+
+    socket.emit(
+      SERVER_EVENTS.ROUND_START,
+      this.buildRoundStartForPlayer(room, player, deadline)
+    );
   }
 
   async createRoom(
@@ -138,10 +160,9 @@ export class GameEngine {
     if (n < room.minPlayers) throw new Error(`Need at least ${room.minPlayers} players`);
     if (n > room.maxPlayers) throw new Error("Too many players");
 
-    const seedWord = pickSeedWords(1)[0]!;
-    await this.repo.createSingleChain(roomId, seedWord);
+    const seedWords = pickSeedWords(n);
+    await this.repo.createChains(roomId, seedWords);
 
-    const first = players[0]!;
     await this.repo.updateRoomState(roomId, {
       state: "DRAWING",
       round: 1,
@@ -149,11 +170,11 @@ export class GameEngine {
         ...room.config,
         numRounds: n,
         drawTimerSec: config.drawTimerSec,
-        activePlayerId: first.id,
+        activePlayerId: null,
       },
     });
 
-    await this.beginDrawingTurn(roomId);
+    await this.beginDrawingRound(roomId);
   }
 
   async submitDrawing(
@@ -163,53 +184,61 @@ export class GameEngine {
   ): Promise<void> {
     let room = await this.repo.loadRoom(roomId);
     if (room.state !== "DRAWING" && room.state !== "GENERATING") return;
-    if (room.config.activePlayerId !== playerId) {
-      throw new Error("Not your turn");
-    }
 
     const player = room.players.find((p) => p.id === playerId);
     if (!player) return;
 
-    const turnKey = this.roomTurnKey(roomId, room.round);
+    const chain = chainForPlayer(room, playerId);
+    if (!chain) return;
+
+    const roundKey = this.roomRoundKey(roomId, room.round);
+
+    if (chain.links.some((l) => l.type === "image" && l.round === room.round)) {
+      return;
+    }
 
     if (player.submitted) {
       const supersede = canSupersedeBlankDrawing(room, playerId, drawingUrl);
       if (!supersede.ok) return;
       await this.repo.updateLinkContent(supersede.linkId, drawingUrl);
-      await this.restartGeneratingForTurn(roomId, room.round);
+      await this.restartGeneratingForRound(roomId, room.round);
       return;
     }
 
-    const chain = this.mainChain(room);
-    const alreadyHasImage = chain.links.some(
-      (l) => l.type === "image" && l.round === room.round
-    );
-    if (alreadyHasImage) return;
-
-    if (this.generationJobs.has(turnKey)) {
+    if (this.generationJobs.has(roundKey)) {
       const supersede = canSupersedeBlankDrawing(room, playerId, drawingUrl);
       if (!supersede.ok) return;
       await this.repo.updateLinkContent(supersede.linkId, drawingUrl);
       await this.repo.setPlayerSubmitted(roomId, playerId, true);
-      await this.restartGeneratingForTurn(roomId, room.round);
+      await this.restartGeneratingForRound(roomId, room.round);
       return;
     }
 
-    await this.repo.addLink(chain.id, room.round, "drawing", playerId, drawingUrl);
+    await this.repo.addLink(
+      chain.id,
+      room.round,
+      "drawing",
+      playerId,
+      drawingUrl
+    );
     await this.repo.setPlayerSubmitted(roomId, playerId, true);
-    this.clearTimer(roomId);
-    await this.enterGenerating(roomId);
+
+    room = await this.repo.loadRoom(roomId);
+    if (this.allPlayersSubmitted(room)) {
+      this.clearTimer(roomId);
+      await this.enterGenerating(roomId);
+    }
   }
 
-  private async restartGeneratingForTurn(
+  private async restartGeneratingForRound(
     roomId: string,
-    turn: number
+    round: number
   ): Promise<void> {
-    const turnKey = this.roomTurnKey(roomId, turn);
-    this.bumpGenerationVersion(turnKey);
-    clearTurnAiForTurn(roomId, turn);
+    const roundKey = this.roomRoundKey(roomId, round);
+    this.bumpGenerationVersion(roundKey);
+    clearTurnAiForTurn(roomId, round);
 
-    const existingJob = this.generationJobs.get(turnKey);
+    const existingJob = this.generationJobs.get(roundKey);
     if (existingJob) await existingJob;
 
     await this.enterGenerating(roomId);
@@ -220,21 +249,25 @@ export class GameEngine {
     if (room.hostPlayerId !== hostPlayerId) throw new Error("Only host can advance");
     if (room.state !== "REVEAL") return;
 
-    await this.repo.updateRoomState(roomId, { state: "GAME_OVER" });
-    const final = await this.broadcastRoom(roomId);
-    this.io.to(this.roomChannel(roomId)).emit(SERVER_EVENTS.GAME_OVER, { room: final });
+    const nextIndex = room.revealChainIndex + 1;
+    if (nextIndex >= room.chains.length) {
+      await this.repo.updateRoomState(roomId, { state: "GAME_OVER" });
+      const final = await this.broadcastRoom(roomId);
+      this.io
+        .to(this.roomChannel(roomId))
+        .emit(SERVER_EVENTS.GAME_OVER, { room: final });
+      return;
+    }
+
+    await this.repo.updateRoomState(roomId, { reveal_chain_index: nextIndex });
+    await this.emitRevealStep(roomId);
   }
 
-  private async beginDrawingTurn(roomId: string): Promise<void> {
+  private async beginDrawingRound(roomId: string): Promise<void> {
     await this.repo.resetSubmissions(roomId);
-    let room = await this.repo.loadRoom(roomId);
+    const room = await this.repo.loadRoom(roomId);
     const players = this.sortedPlayers(room);
-    const turn = room.round;
-    const active = players[turn - 1];
-    if (!active) throw new Error("Invalid turn");
 
-    room = await this.setActivePlayer(roomId, active.id);
-    const chain = this.mainChain(room);
     const deadline = new Date(
       Date.now() + room.config.drawTimerSec * 1000
     ).toISOString();
@@ -242,96 +275,61 @@ export class GameEngine {
 
     this.clearTimer(roomId);
     const handle = setTimeout(() => {
-      void this.onTurnTimerExpired(roomId);
+      void this.onRoundTimerExpired(roomId);
     }, room.config.drawTimerSec * 1000);
     this.timers.set(roomId, handle);
-
-    let roundStart: RoundStartPayload;
-    let waiting: TurnWaitingPayload;
-
-    if (turn === 1) {
-      const word = chain.seedWord;
-      roundStart = {
-        type: "word",
-        word,
-        deadline,
-        round: turn,
-        totalTurns: room.config.numRounds,
-        chainId: chain.id,
-        playerName: active.name,
-      };
-      waiting = {
-        round: turn,
-        totalTurns: room.config.numRounds,
-        activePlayerId: active.id,
-        activePlayerName: active.name,
-        promptType: "word",
-        word,
-      };
-    } else {
-      const ref = this.latestImage(chain);
-      const image = ref?.content ?? "";
-      roundStart = {
-        type: "redraw",
-        image,
-        deadline,
-        round: turn,
-        totalTurns: room.config.numRounds,
-        chainId: chain.id,
-        playerName: active.name,
-      };
-      waiting = {
-        round: turn,
-        totalTurns: room.config.numRounds,
-        activePlayerId: active.id,
-        activePlayerName: active.name,
-        promptType: "redraw",
-        image,
-      };
-    }
 
     const sockets = await this.io.in(this.roomChannel(roomId)).fetchSockets();
     for (const s of sockets) {
       const pid = (s.data as { playerId?: string }).playerId;
-      if (pid === active.id) {
-        s.emit(SERVER_EVENTS.ROUND_START, roundStart);
-      } else {
-        s.emit(SERVER_EVENTS.TURN_WAITING, waiting);
-      }
+      const player = players.find((p) => p.id === pid);
+      if (!player) continue;
+      s.emit(
+        SERVER_EVENTS.ROUND_START,
+        this.buildRoundStartForPlayer(room, player, deadline)
+      );
     }
 
     await this.broadcastRoom(roomId);
   }
 
-  private async onTurnTimerExpired(roomId: string): Promise<void> {
+  private async onRoundTimerExpired(roomId: string): Promise<void> {
     await new Promise((r) => setTimeout(r, TIMER_SUBMIT_GRACE_MS));
 
-    const room = await this.repo.loadRoom(roomId);
+    let room = await this.repo.loadRoom(roomId);
     if (room.state !== "DRAWING") return;
 
-    const activeId = room.config.activePlayerId;
-    if (!activeId) return;
+    const players = this.sortedPlayers(room);
+    for (const player of players) {
+      if (player.submitted) continue;
 
-    const player = room.players.find((p) => p.id === activeId);
-    if (!player || player.submitted) return;
+      const chain = chainForPlayer(room, player.id);
+      if (!chain) continue;
 
-    const chain = this.mainChain(room);
-    if (
-      chain.links.some(
-        (l) => l.type === "image" && l.round === room.round
-      )
-    ) {
-      return;
+      if (
+        chain.links.some(
+          (l) => l.type === "image" && l.round === room.round
+        )
+      ) {
+        continue;
+      }
+
+      const existing = latestDrawingForRound(chain, room.round);
+      if (existing?.authorId === player.id) continue;
+
+      await this.repo.addLink(
+        chain.id,
+        room.round,
+        "drawing",
+        player.id,
+        BLANK_DRAWING
+      );
+      await this.repo.setPlayerSubmitted(roomId, player.id, true);
     }
 
-    await this.repo.addLink(
-      chain.id,
-      room.round,
-      "drawing",
-      activeId,
-      BLANK_DRAWING
-    );
-    await this.repo.setPlayerSubmitted(roomId, activeId, true);
+    room = await this.repo.loadRoom(roomId);
+    if (!this.allPlayersSubmitted(room)) return;
+
     this.clearTimer(roomId);
     await this.enterGenerating(roomId);
   }
@@ -346,24 +344,24 @@ export class GameEngine {
     const room = await this.repo.loadRoom(roomId);
     if (room.state !== "DRAWING" && room.state !== "GENERATING") return;
 
-    const turnKey = this.roomTurnKey(roomId, room.round);
-    const existingJob = this.generationJobs.get(turnKey);
+    const roundKey = this.roomRoundKey(roomId, room.round);
+    const existingJob = this.generationJobs.get(roundKey);
     if (existingJob) {
       await existingJob;
       return;
     }
 
-    const version = this.bumpGenerationVersion(turnKey);
-    const job = this.runGeneratingTurn(roomId, version);
-    this.generationJobs.set(turnKey, job);
+    const version = this.bumpGenerationVersion(roundKey);
+    const job = this.runGeneratingRound(roomId, version);
+    this.generationJobs.set(roundKey, job);
     try {
       await job;
     } finally {
-      this.generationJobs.delete(turnKey);
+      this.generationJobs.delete(roundKey);
     }
   }
 
-  private async runGeneratingTurn(
+  private async runGeneratingRound(
     roomId: string,
     generationVersion: number
   ): Promise<void> {
@@ -371,30 +369,23 @@ export class GameEngine {
     let room = await this.repo.loadRoom(roomId);
     if (room.state !== "DRAWING" && room.state !== "GENERATING") return;
 
-    const turn = room.round;
-    const turnKey = this.roomTurnKey(roomId, turn);
+    const round = room.round;
+    const roundKey = this.roomRoundKey(roomId, round);
     const stillCurrent = () =>
-      this.isGenerationCurrent(turnKey, generationVersion);
+      this.isGenerationCurrent(roundKey, generationVersion);
 
-    const activeId = room.config.activePlayerId;
-    const active = room.players.find((p) => p.id === activeId);
-    let chain = this.mainChain(room);
+    const chains = [...room.chains].sort(
+      (a, b) => a.chainIndex - b.chainIndex
+    );
+    const pending = chains.filter((chain) => {
+      if (this.imageUrlForRound(chain, round)) return false;
+      return Boolean(latestDrawingForRound(chain, round));
+    });
 
-    let imageUrl =
-      this.imageUrlForRound(chain, turn) ??
-      getCachedTurnImageUrl(roomId, turn);
-
-    if (imageUrl) {
-      if (!stillCurrent()) return;
-      this.broadcastAiImageReady(roomId, turn, imageUrl);
-      await this.advanceAfterTurnImage(roomId);
+    if (pending.length === 0) {
+      await this.advanceAfterRound(roomId);
       return;
     }
-
-    const hasDrawing = chain.links.some(
-      (l) => l.type === "drawing" && l.round === turn
-    );
-    if (!hasDrawing) return;
 
     if (!stillCurrent()) return;
 
@@ -402,7 +393,11 @@ export class GameEngine {
     await this.broadcastRoom(roomId);
 
     const emitProgress = (completed: number, failed: number) => {
-      const payload: GeneratingPayload = { count: 1, completed, failed };
+      const payload: GeneratingPayload = {
+        count: pending.length,
+        completed,
+        failed,
+      };
       this.io
         .to(this.roomChannel(roomId))
         .emit(SERVER_EVENTS.GENERATING, payload);
@@ -410,40 +405,81 @@ export class GameEngine {
 
     emitProgress(0, 0);
 
-    room = await this.repo.loadRoom(roomId);
-    chain = this.mainChain(room);
-    const drawingNow = chain.links
-      .filter((l) => l.type === "drawing" && l.round === turn)
-      .at(-1);
-    if (!drawingNow || !stillCurrent()) return;
+    let completed = 0;
+    let failed = 0;
 
-    imageUrl = await transformDoodle(
-      drawingNow.content,
-      roomId,
-      room.config.styleSuffix,
-      {
-        playerName: active?.name,
-        turn,
-        seedWord: chain.seedWord,
-      }
+    await Promise.all(
+      pending.map(async (chain) => {
+        if (!stillCurrent()) return;
+
+        const cached = getCachedTurnImageUrl(
+          roomId,
+          round,
+          chain.chainIndex
+        );
+        if (cached) {
+          room = await this.repo.loadRoom(roomId);
+          const fresh = room.chains.find((c) => c.id === chain.id);
+          if (fresh && !this.imageUrlForRound(fresh, round)) {
+            await this.repo.addLink(
+              chain.id,
+              round,
+              "image",
+              null,
+              cached
+            );
+          }
+          completed++;
+          emitProgress(completed, failed);
+          return;
+        }
+
+        const drawing = latestDrawingForRound(chain, round);
+        if (!drawing) return;
+
+        const author = room.players.find((p) => p.id === drawing.authorId);
+
+        try {
+          const imageUrl = await transformDoodle(
+            drawing.content,
+            roomId,
+            room.config.styleSuffix,
+            {
+              playerName: author?.name,
+              turn: round,
+              chainIndex: chain.chainIndex,
+              seedWord: chain.seedWord,
+            }
+          );
+
+          if (!stillCurrent()) return;
+
+          room = await this.repo.loadRoom(roomId);
+          const fresh = room.chains.find((c) => c.id === chain.id);
+          if (fresh && !this.imageUrlForRound(fresh, round)) {
+            await this.repo.addLink(
+              chain.id,
+              round,
+              "image",
+              null,
+              imageUrl
+            );
+          }
+          completed++;
+        } catch {
+          failed++;
+        }
+
+        emitProgress(completed, failed);
+      })
     );
-    emitProgress(1, 0);
 
     if (!stillCurrent()) return;
 
-    room = await this.repo.loadRoom(roomId);
-    chain = this.mainChain(room);
-    if (!this.imageUrlForRound(chain, turn)) {
-      await this.repo.addLink(chain.id, turn, "image", null, imageUrl);
-    }
-
-    if (!stillCurrent()) return;
-
-    this.broadcastAiImageReady(roomId, turn, imageUrl);
-    await this.advanceAfterTurnImage(roomId);
+    await this.advanceAfterRound(roomId);
   }
 
-  private async advanceAfterTurnImage(roomId: string): Promise<void> {
+  private async advanceAfterRound(roomId: string): Promise<void> {
     const after = await this.repo.loadRoom(roomId);
     if (after.state !== "GENERATING" && after.state !== "DRAWING") return;
 
@@ -461,18 +497,21 @@ export class GameEngine {
       state: "DRAWING",
       round: after.round + 1,
     });
-    await this.beginDrawingTurn(roomId);
+    await this.beginDrawingRound(roomId);
   }
 
   private async emitRevealStep(roomId: string): Promise<void> {
     const room = await this.repo.loadRoom(roomId);
-    const chain = this.mainChain(room);
+    const chain =
+      room.chains.find((c) => c.chainIndex === room.revealChainIndex) ??
+      room.chains[0];
+    if (!chain) return;
 
     const payload: RevealStepPayload = {
       chainId: chain.id,
-      chainIndex: 0,
+      chainIndex: chain.chainIndex,
       links: chain.links,
-      chainCount: 1,
+      chainCount: room.chains.length,
     };
 
     this.io.to(this.roomChannel(roomId)).emit(SERVER_EVENTS.REVEAL_STEP, payload);

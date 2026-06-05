@@ -1,3 +1,4 @@
+import { chainIndexForPlayer } from "@drift/shared";
 import type { ChainSnapshot, RoomSnapshot } from "@drift/shared";
 
 export const BLANK_DRAWING =
@@ -7,14 +8,19 @@ export function isBlankDrawing(content: string): boolean {
   return content === BLANK_DRAWING;
 }
 
-function mainChain(room: RoomSnapshot): ChainSnapshot | undefined {
-  return room.chains.find((c) => c.chainIndex === 0);
+export function chainForPlayer(
+  room: RoomSnapshot,
+  playerId: string
+): ChainSnapshot | undefined {
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player) return undefined;
+  const n = room.players.length;
+  if (n === 0) return undefined;
+  const idx = chainIndexForPlayer(player.displayIndex, room.round, n);
+  return room.chains.find((c) => c.chainIndex === idx);
 }
 
-export function latestDrawingForRound(
-  chain: ChainSnapshot,
-  round: number
-) {
+export function latestDrawingForRound(chain: ChainSnapshot, round: number) {
   const drawings = chain.links.filter(
     (l) => l.type === "drawing" && l.round === round
   );
@@ -31,12 +37,11 @@ export function canSupersedeBlankDrawing(
   drawingUrl: string
 ): SupersedeBlankResult {
   if (isBlankDrawing(drawingUrl)) return { ok: false };
-  if (room.config.activePlayerId !== playerId) return { ok: false };
 
   const player = room.players.find((p) => p.id === playerId);
   if (!player?.submitted) return { ok: false };
 
-  const chain = mainChain(room);
+  const chain = chainForPlayer(room, playerId);
   if (!chain) return { ok: false };
 
   if (chain.links.some((l) => l.type === "image" && l.round === room.round)) {
@@ -44,7 +49,8 @@ export function canSupersedeBlankDrawing(
   }
 
   const drawing = latestDrawingForRound(chain, room.round);
-  if (!drawing || !isBlankDrawing(drawing.content)) return { ok: false };
+  if (!drawing || drawing.authorId !== playerId) return { ok: false };
+  if (!isBlankDrawing(drawing.content)) return { ok: false };
 
   return { ok: true, linkId: drawing.id };
 }

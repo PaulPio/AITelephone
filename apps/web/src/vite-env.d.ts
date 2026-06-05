@@ -7,6 +7,7 @@ interface ImportMetaEnv {
   readonly VITE_WS_URL: string;
   readonly VITE_PUBLIC_APP_URL: string;
   readonly VITE_DEMO_AUTH_BYPASS?: string;
+  readonly VITE_SKIP_AI?: string;
 }
 
 interface ImportMeta {

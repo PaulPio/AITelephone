@@ -1,7 +1,7 @@
 import { CLIENT_EVENTS } from "@drift/shared";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useState } from "react";
-import { PUBLIC_APP_URL } from "../lib/config";
+import { PUBLIC_APP_URL, skipAiMode } from "../lib/config";
 import { buildHostProjectorView } from "../lib/hostProjector";
 import {
   clearDemoSession,
@@ -27,7 +27,7 @@ export function HostPage({ accessToken }: Props) {
   const [reconnecting, setReconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { connected, room, generating, aiImageReady, revealStep, turnWaiting, emit } =
+  const { connected, room, generating, revealStep, emit } =
     useGameSocket(accessToken, name);
 
   const joinUrl = room
@@ -215,58 +215,20 @@ export function HostPage({ accessToken }: Props) {
             {projector && (
               <div className="host-projector" style={{ marginTop: "1rem" }}>
                 {projector.phase === "drawing" && (
-                  <>
-                    <p>
-                      <strong>{projector.activePlayerName}</strong> is drawing (
-                      {projector.round}/{projector.totalTurns})
-                    </p>
-                    {projector.promptType === "word" && (
-                      <div className="word-prompt" style={{ marginTop: "0.75rem" }}>
-                        Draw: {projector.word}
-                      </div>
-                    )}
-                    {projector.promptType === "redraw" &&
-                      (projector.imageUrl ? (
-                        <>
-                          <p className="label" style={{ marginTop: "0.75rem" }}>
-                            Copy this AI image
-                          </p>
-                          <img
-                            className="ref-image"
-                            src={projector.imageUrl}
-                            alt="AI reference"
-                          />
-                        </>
-                      ) : (
-                        <p className="muted" style={{ marginTop: "0.75rem" }}>
-                          Waiting for AI reference image…
-                        </p>
-                      ))}
-                  </>
+                  <p>
+                    Round {projector.round}/{projector.totalRounds} — everyone is
+                    drawing ({projector.submittedCount}/{projector.playerCount}{" "}
+                    submitted)
+                  </p>
                 )}
                 {projector.phase === "generating" && (
-                  <>
-                    <p style={{ marginTop: "0.5rem" }}>
-                      AI is reimagining <strong>{projector.activePlayerName}</strong>
-                      &apos;s doodle…
-                    </p>
-                    {projector.drawingUrl && (
-                      <img
-                        className="ref-image"
-                        src={projector.drawingUrl}
-                        alt="Submitted doodle"
-                        style={{ marginTop: "0.75rem" }}
-                      />
-                    )}
-                  </>
+                  <p style={{ marginTop: "0.5rem" }}>
+                    {skipAiMode ? "Advancing round" : "Reimagining"}{" "}
+                    {projector.playerCount} doodles… (round {projector.round}/
+                    {projector.totalRounds})
+                  </p>
                 )}
               </div>
-            )}
-            {!projector && room.state === "DRAWING" && turnWaiting && (
-              <p style={{ marginTop: "0.5rem" }}>
-                <strong>{turnWaiting.activePlayerName}</strong> is drawing (
-                {turnWaiting.round}/{turnWaiting.totalTurns})
-              </p>
             )}
             <div className="player-grid" style={{ marginTop: "0.75rem" }}>
               {room.players.map((p) => (
@@ -292,18 +254,14 @@ export function HostPage({ accessToken }: Props) {
               </button>
             )}
 
-            {!projector && generating && !aiImageReady && (
-              <p style={{ marginTop: "1rem" }}>AI is reimagining the doodle…</p>
-            )}
-            {!projector && aiImageReady && (
-              <div style={{ marginTop: "1rem", textAlign: "center" }}>
-                <p className="muted">AI result (turn {aiImageReady.round})</p>
-                <img
-                  className="ref-image"
-                  src={aiImageReady.imageUrl}
-                  alt="AI reimagining"
-                />
-              </div>
+            {!projector && generating && (
+              <p style={{ marginTop: "1rem" }}>
+                {skipAiMode
+                  ? "Collecting drawings…"
+                  : "AI is reimagining drawings…"}
+                {generating.count > 0 &&
+                  ` (${generating.completed}/${generating.count})`}
+              </p>
             )}
           </div>
 
@@ -343,7 +301,9 @@ export function HostPage({ accessToken }: Props) {
               );
               })}
               <button type="button" className="btn" onClick={() => void hostNext()}>
-                Done
+                {currentReveal.chainIndex + 1 >= currentReveal.chainCount
+                  ? "Finish"
+                  : "Next chain"}
               </button>
             </div>
           )}

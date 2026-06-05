@@ -2,15 +2,21 @@
 const inFlightPromises = new Map<string, Promise<string>>();
 const completedUrls = new Map<string, string>();
 
-export function turnAiKey(roomId: string, turn: number): string {
-  return `${roomId}:${turn}`;
+export function turnAiKey(
+  roomId: string,
+  turn: number,
+  chainIndex?: number
+): string {
+  if (chainIndex === undefined) return `${roomId}:${turn}`;
+  return `${roomId}:${turn}:c${chainIndex}`;
 }
 
 export function getCachedTurnImageUrl(
   roomId: string,
-  turn: number
+  turn: number,
+  chainIndex: number
 ): string | undefined {
-  return completedUrls.get(turnAiKey(roomId, turn));
+  return completedUrls.get(turnAiKey(roomId, turn, chainIndex));
 }
 
 /** Clears in-memory turn cache (tests only). */
@@ -20,8 +26,22 @@ export function resetTurnAiLimitForTests(): void {
 }
 
 /** Drop cached / in-flight AI result so a new doodle can be transformed. */
-export function clearTurnAiForTurn(roomId: string, turn: number): void {
-  const key = turnAiKey(roomId, turn);
+export function clearTurnAiForTurn(
+  roomId: string,
+  turn: number,
+  chainIndex?: number
+): void {
+  if (chainIndex === undefined) {
+    const prefix = `${roomId}:${turn}`;
+    for (const key of [...inFlightPromises.keys(), ...completedUrls.keys()]) {
+      if (key === prefix || key.startsWith(`${prefix}:c`)) {
+        inFlightPromises.delete(key);
+        completedUrls.delete(key);
+      }
+    }
+    return;
+  }
+  const key = turnAiKey(roomId, turn, chainIndex);
   inFlightPromises.delete(key);
   completedUrls.delete(key);
 }
@@ -32,9 +52,10 @@ export function clearTurnAiForTurn(roomId: string, turn: number): void {
 export function runTurnTransformOnce(
   roomId: string,
   turn: number,
+  chainIndex: number,
   factory: () => Promise<string>
 ): Promise<string> {
-  const key = turnAiKey(roomId, turn);
+  const key = turnAiKey(roomId, turn, chainIndex);
   const cached = completedUrls.get(key);
   if (cached) return Promise.resolve(cached);
 
@@ -54,4 +75,4 @@ export function runTurnTransformOnce(
   }
   return job;
 }
-
+

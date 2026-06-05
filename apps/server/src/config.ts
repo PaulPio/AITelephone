@@ -13,4 +13,6 @@ export const config = {
   supabaseUrl: process.env.SUPABASE_URL ?? "",
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
   demoAuthBypass: process.env.DEMO_AUTH_BYPASS === "true",
+  /** Pass canvas drawings through as round references — no OpenRouter calls. */
+  skipAi: process.env.SKIP_AI === "true",
 };
