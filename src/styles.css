@@ -325,6 +325,61 @@ h2 {
   gap: 10px;
 }
 
+.prompt-builder {
+  display: grid;
+  gap: 12px;
+  max-width: 820px;
+  padding: 16px;
+  border: 2px solid #d6d1ec;
+  border-radius: 12px;
+  background: rgba(255, 248, 239, 0.82);
+}
+
+.prompt-inputs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.choice-screen {
+  min-height: 560px;
+  display: grid;
+  align-content: center;
+  gap: 24px;
+}
+
+.choice-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+}
+
+.choice-header h1 {
+  color: #241530;
+  text-shadow: 0 4px 0 rgba(54, 225, 159, 0.45);
+}
+
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.choice-card {
+  min-height: 170px;
+  padding: 18px;
+  align-items: center;
+  text-align: center;
+  font-size: clamp(1.15rem, 2vw, 1.7rem);
+  line-height: 1.15;
+  background: #fff8ef;
+}
+
+.choice-card.selected-choice {
+  background: #36e19f;
+}
+
 .draw-screen,
 .describe-screen {
   display: grid;
@@ -591,7 +646,7 @@ h2 {
 
 .player-row {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto 1fr auto auto auto;
   gap: 9px;
   align-items: center;
   min-height: 42px;
@@ -601,6 +656,19 @@ h2 {
   background: #f1edff;
   color: #241530;
   font-weight: 900;
+}
+
+.icon-button {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 8px;
+  box-shadow: 0 2px 0 #251833;
+}
+
+.danger-button {
+  background: #ff5577;
+  color: #fff8ef;
 }
 
 .dot {
@@ -667,7 +735,14 @@ h2 {
     border-radius: 12px;
   }
 
-  .join-row {
+  .join-row,
+  .prompt-inputs,
+  .choice-grid {
     grid-template-columns: 1fr;
+  }
+
+  .choice-header {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

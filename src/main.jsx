@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { io } from 'socket.io-client';
-import { Brush, Check, Crown, Eraser, PaintBucket, Play, RotateCcw, SkipBack, SkipForward, Trash2, Users } from 'lucide-react';
+import { Brush, Check, Crown, Eraser, PaintBucket, Play, RotateCcw, SkipBack, SkipForward, Trash2, UserMinus, Users } from 'lucide-react';
 import './styles.css';
 
 const socket = io();
@@ -18,9 +18,17 @@ function App() {
   useEffect(() => {
     socket.on('room:update', setRoom);
     socket.on('player:task', setTask);
+    socket.on('room:kicked', () => {
+      sessionStorage.removeItem('roomCode');
+      sessionStorage.removeItem('playerId');
+      setRoom(null);
+      setTask(null);
+      setError('You were removed from the room.');
+    });
     return () => {
       socket.off('room:update');
       socket.off('player:task');
+      socket.off('room:kicked');
     };
   }, []);
 
@@ -76,7 +84,7 @@ function App() {
           </div>
           <label>
             Display name
-            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Michael" />
+            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" />
           </label>
           <div className="join-grid">
             <button className="primary" onClick={createRoom}>
@@ -101,6 +109,7 @@ function App() {
       <div className="layout">
         <section className="main-stage">
           {room.state === 'lobby' && <Lobby room={room} isHost={isHost} />}
+          {room.state === 'choosing' && <PromptChoice room={room} task={task} playerId={playerId} />}
           {room.state === 'drawing' && <DrawingRound room={room} task={task} playerId={playerId} />}
           {room.state === 'describing' && <DescriptionRound room={room} task={task} playerId={playerId} />}
           {room.state === 'generating' && <Generating room={room} />}
@@ -108,7 +117,7 @@ function App() {
         </section>
         <aside className="side">
           <HostControls room={room} isHost={isHost} />
-          <PlayerList room={room} />
+          <PlayerList room={room} isHost={isHost} currentPlayerId={playerId} />
         </aside>
       </div>
     </main>
@@ -134,6 +143,7 @@ function Header({ room, currentPlayer }) {
 
 function stateLabel(room) {
   if (room.state === 'lobby') return 'Waiting for players';
+  if (room.state === 'choosing') return 'Choose your prompt';
   if (room.state === 'drawing') return `Draw turn ${room.round} of ${room.config.numRounds}`;
   if (room.state === 'describing') return `Describe turn ${room.round} of ${room.config.numRounds}`;
   if (room.state === 'generating') return 'AI is reimagining';
@@ -154,6 +164,7 @@ function Lobby({ room, isHost }) {
         <span><Users size={18} /> {room.players.length}/{room.config.maxPlayers} players</span>
         <span>Host can play and manage the room</span>
       </div>
+      <PromptBuilder />
       {isHost ? (
         <button className="primary wide" disabled={!canStart} onClick={() => socket.emit('game:start', {})}>
           <Play size={18} /> Start game
@@ -162,6 +173,95 @@ function Lobby({ room, isHost }) {
         <p className="muted">Waiting for the host to start.</p>
       )}
     </div>
+  );
+}
+
+function PromptBuilder() {
+  const [prompts, setPrompts] = useState(['', '', '']);
+  const [saved, setSaved] = useState(false);
+
+  function updatePrompt(index, value) {
+    const next = [...prompts];
+    next[index] = value;
+    setPrompts(next);
+    setSaved(false);
+  }
+
+  function savePrompts() {
+    socket.emit('prompts:update', { prompts }, (reply) => {
+      setSaved(Boolean(reply?.ok));
+    });
+  }
+
+  return (
+    <section className="prompt-builder">
+      <div>
+        <p className="eyebrow">Prompt ideas</p>
+        <p className="muted">Add up to three. Blanks get filled from the built-in list.</p>
+      </div>
+      <div className="prompt-inputs">
+        {prompts.map((prompt, index) => (
+          <input
+            key={index}
+            value={prompt}
+            onChange={(event) => updatePrompt(index, event.target.value)}
+            maxLength={90}
+            placeholder={`Prompt ${index + 1}`}
+          />
+        ))}
+      </div>
+      <button onClick={savePrompts}><Check size={18} /> {saved ? 'Saved' : 'Save prompts'}</button>
+    </section>
+  );
+}
+
+function PromptChoice({ room, task, playerId }) {
+  const [selected, setSelected] = useState('');
+  const [timeLeft, setTimeLeft] = useState(0);
+  const player = room.players.find((item) => item.id === playerId);
+  const submitted = Boolean(player?.submitted);
+  const options = task?.options || [];
+
+  useEffect(() => {
+    setSelected('');
+  }, [room.state]);
+
+  useEffect(() => {
+    const tick = () => setTimeLeft(Math.max(0, Math.ceil(((task?.deadline || Date.now()) - Date.now()) / 1000)));
+    tick();
+    const timer = setInterval(tick, 250);
+    return () => clearInterval(timer);
+  }, [task?.deadline]);
+
+  function choosePrompt(prompt) {
+    if (submitted) return;
+    setSelected(prompt);
+    socket.emit('prompt:choose', { prompt });
+  }
+
+  return (
+    <section className="panel choice-screen">
+      <div className="choice-header">
+        <div>
+          <p className="eyebrow">Pick one</p>
+          <h1>Choose your starting prompt</h1>
+        </div>
+        <div className={`timer ${timeLeft <= 5 ? 'danger' : ''}`}>{timeLeft}s</div>
+      </div>
+      <div className="choice-grid">
+        {options.map((option) => (
+          <button
+            key={option}
+            className={`choice-card ${selected === option || (submitted && selected === option) ? 'selected-choice' : ''}`}
+            onClick={() => choosePrompt(option)}
+            disabled={submitted}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+      <p className="muted">{submitted ? 'Locked in. Waiting for everyone else.' : 'If time runs out, the first option is picked.'}</p>
+    </section>
   );
 }
 
@@ -534,7 +634,7 @@ function HostControls({ room, isHost }) {
   );
 }
 
-function PlayerList({ room }) {
+function PlayerList({ room, isHost, currentPlayerId }) {
   return (
     <section className="panel compact">
       <p className="eyebrow">Players</p>
@@ -545,6 +645,11 @@ function PlayerList({ room }) {
             <span>{player.name}</span>
             {player.isHost && <Crown size={14} />}
             {player.submitted && <Check size={16} />}
+            {isHost && room.state === 'lobby' && !player.isHost && player.id !== currentPlayerId && (
+              <button className="icon-button danger-button" onClick={() => socket.emit('host:kick', { playerId: player.id })} title={`Kick ${player.name}`}>
+                <UserMinus size={16} />
+              </button>
+            )}
           </div>
         ))}
       </div>

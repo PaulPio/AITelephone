@@ -40,6 +40,7 @@ const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 4);
 const falKey = process.env.FAL_KEY || process.env.FAL_API_KEY || process.env.API_KEY;
 const forceMockAi = String(process.env.MOCK_AI || '').toLowerCase() === 'true';
 let lastAiError = null;
+const aiTimeoutMs = Number(process.env.AI_TIMEOUT_MS || 25000);
 
 if (falKey && !forceMockAi) {
   fal.config({ credentials: falKey });
@@ -72,9 +73,11 @@ function publicRoom(room) {
       name: player.name,
       isHost: player.isHost,
       connected: player.connected,
-      submitted: room.submissions.has(player.id)
+      submitted: room.submissions.has(player.id),
+      promptCount: player.prompts.length
     })),
-    chains: room.chains
+    chains: room.chains,
+    promptOptions: room.promptOptions
   };
 }
 
@@ -95,6 +98,13 @@ function assignmentFor(room, playerId, round = room.round) {
 }
 
 function playerTask(room, playerId) {
+  if (room.state === 'choosing') {
+    return {
+      mode: 'choosing',
+      deadline: room.deadline,
+      options: room.promptOptions[playerId] || []
+    };
+  }
   if (!['drawing', 'describing'].includes(room.state)) return null;
   const chain = assignmentFor(room, playerId);
   if (!chain) return null;
@@ -129,7 +139,8 @@ function createRoom(hostName) {
     socketId: null,
     name: hostName || 'Host',
     isHost: true,
-    connected: true
+    connected: true,
+    prompts: []
   };
   const room = {
     code,
@@ -143,10 +154,12 @@ function createRoom(hostName) {
       numRounds: 5,
       drawTimerSec: 30,
       describeTimerSec: 30,
+      chooseTimerSec: 20,
       maxPlayers: 10
     },
     players: [host],
     chains: [],
+    promptOptions: {},
     submissions: new Map()
   };
   rooms.set(code, room);
@@ -155,23 +168,69 @@ function createRoom(hostName) {
 
 function startGame(room) {
   if (room.players.length < 1 || room.players.length > room.config.maxPlayers) return;
-  const shuffled = [...seedWords].sort(() => Math.random() - 0.5);
+  const promptPool = buildPromptPool(room);
+  room.promptOptions = {};
   room.chains = room.players.map((player, index) => ({
     id: `chain-${index + 1}`,
-    seedWord: shuffled[index % shuffled.length],
+    seedWord: null,
     starterId: player.id,
-    links: [
-      {
-        type: 'word',
-        text: shuffled[index % shuffled.length],
-        authorId: 'system',
-        createdAt: Date.now()
-      }
-    ]
+    links: []
   }));
+  room.players.forEach((player, index) => {
+    room.promptOptions[player.id] = pickPromptOptions(promptPool, index);
+  });
   room.round = 1;
   room.revealIndex = 0;
+  beginPromptChoice(room);
+}
+
+function buildPromptPool(room) {
+  const submitted = room.players.flatMap((player) => player.prompts || []);
+  return [...submitted, ...seedWords].map(cleanPrompt).filter(Boolean);
+}
+
+function pickPromptOptions(promptPool, offset) {
+  const unique = [...new Set(promptPool)];
+  const rotated = [...unique.slice(offset), ...unique.slice(0, offset)];
+  const options = rotated.slice(0, 3);
+  while (options.length < 3) {
+    options.push(seedWords[(offset + options.length) % seedWords.length]);
+  }
+  return options.slice(0, 3);
+}
+
+function beginPromptChoice(room) {
+  clearTimeout(room.timer);
+  room.state = 'choosing';
+  room.submissions = new Map();
+  room.deadline = Date.now() + room.config.chooseTimerSec * 1000;
+  emitRoom(room);
+  sendTasks(room);
+  room.timer = setTimeout(() => finishPromptChoice(room), room.config.chooseTimerSec * 1000 + 500);
+}
+
+function finishPromptChoice(room) {
+  if (room.state !== 'choosing') return;
+  clearTimeout(room.timer);
+  room.players.forEach((player, index) => {
+    const chain = room.chains[index];
+    if (!chain) return;
+    const options = room.promptOptions[player.id] || pickPromptOptions(seedWords, index);
+    const selected = cleanPrompt(room.submissions.get(player.id)?.prompt) || options[0] || seedWords[index % seedWords.length];
+    chain.seedWord = selected;
+    chain.links = [{
+      type: 'word',
+      text: selected,
+      authorId: player.id,
+      createdAt: Date.now()
+    }];
+  });
+  room.submissions = new Map();
   beginTurn(room);
+}
+
+function cleanPrompt(prompt) {
+  return String(prompt || '').trim().slice(0, 90);
 }
 
 function beginTurn(room) {
@@ -208,10 +267,10 @@ async function finishRound(room) {
     }
   }
 
-  for (const [playerId, submission] of room.submissions.entries()) {
-    const chain = room.chains.find((item) => item.id === submission.chainId);
-    if (!chain) continue;
-    if (finishingState === 'drawing') {
+  if (finishingState === 'drawing') {
+    await Promise.all([...room.submissions.entries()].map(async ([playerId, submission]) => {
+      const chain = room.chains.find((item) => item.id === submission.chainId);
+      if (!chain) return;
       const drawingUrl = submission.drawingUrl || await createBlankDrawing(room.code, playerId);
       chain.links.push({
         type: 'drawing',
@@ -227,7 +286,11 @@ async function finishRound(room) {
         sourcePlayerId: playerId,
         createdAt: Date.now()
       });
-    } else {
+    }));
+  } else {
+    for (const [playerId, submission] of room.submissions.entries()) {
+      const chain = room.chains.find((item) => item.id === submission.chainId);
+      if (!chain) continue;
       chain.links.push({
         type: 'description',
         text: cleanDescription(submission.description),
@@ -273,7 +336,7 @@ async function createAiImage(room, chain, playerId, drawingUrl) {
   try {
     lastAiError = null;
     return {
-      url: await createFalKontextImage(chain, drawingUrl),
+      url: await withTimeout(createFalKontextImage(chain, drawingUrl), aiTimeoutMs, 'Fal generation timed out'),
       authorId: 'fal-ai'
     };
   } catch (error) {
@@ -284,6 +347,14 @@ async function createAiImage(room, chain, playerId, drawingUrl) {
       authorId: 'mock-ai'
     };
   }
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timeout;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeout));
 }
 
 function describeError(error) {
@@ -394,6 +465,7 @@ app.get('/api/health', (_req, res) => {
       provider: falKey && !forceMockAi ? 'fal-ai/flux-pro/kontext' : 'mock',
       keyConfigured: Boolean(falKey),
       forcedMock: forceMockAi,
+      timeoutMs: aiTimeoutMs,
       lastError: lastAiError
     }
   });
@@ -435,7 +507,8 @@ io.on('connection', (socket) => {
       socketId: socket.id,
       name: name?.trim() || 'Player',
       isHost: Boolean(asHost && room.hostId === socket.data.playerId),
-      connected: true
+      connected: true,
+      prompts: []
     };
     room.players.push(player);
     socket.data.playerId = player.id;
@@ -469,6 +542,42 @@ io.on('connection', (socket) => {
       return;
     }
     startGame(room);
+    reply?.({ ok: true });
+  });
+
+  socket.on('prompts:update', ({ prompts }, reply) => {
+    const room = getPlayerRoom(socket);
+    const player = room?.players.find((item) => item.id === socket.data.playerId);
+    if (!room || !player || room.state !== 'lobby') {
+      reply?.({ ok: false, error: 'Prompts can only be updated in the lobby' });
+      return;
+    }
+    player.prompts = Array.isArray(prompts) ? prompts.map(cleanPrompt).filter(Boolean).slice(0, 3) : [];
+    emitRoom(room);
+    reply?.({ ok: true });
+  });
+
+  socket.on('prompt:choose', ({ prompt }, reply) => {
+    const room = getPlayerRoom(socket);
+    const playerId = socket.data.playerId;
+    if (!room || room.state !== 'choosing') {
+      reply?.({ ok: false, error: 'No active prompt choice' });
+      return;
+    }
+    if (room.submissions.has(playerId)) {
+      reply?.({ ok: true });
+      return;
+    }
+    const options = room.promptOptions[playerId] || [];
+    const selected = cleanPrompt(prompt);
+    room.submissions.set(playerId, {
+      prompt: options.includes(selected) ? selected : options[0],
+      auto: false
+    });
+    emitRoom(room);
+    if (room.submissions.size >= room.players.length) {
+      finishPromptChoice(room);
+    }
     reply?.({ ok: true });
   });
 
@@ -564,7 +673,32 @@ io.on('connection', (socket) => {
     room.revealIndex = 0;
     room.deadline = null;
     room.chains = [];
+    room.promptOptions = {};
     room.submissions = new Map();
+    emitRoom(room);
+    reply?.({ ok: true });
+  });
+
+  socket.on('host:kick', ({ playerId }, reply) => {
+    const room = getPlayerRoom(socket);
+    if (!room || socket.data.playerId !== room.hostId || room.state !== 'lobby') {
+      reply?.({ ok: false, error: 'Only the host can kick in the lobby' });
+      return;
+    }
+    if (playerId === room.hostId) {
+      reply?.({ ok: false, error: 'Host cannot kick themselves' });
+      return;
+    }
+    const index = room.players.findIndex((player) => player.id === playerId);
+    if (index < 0) {
+      reply?.({ ok: false, error: 'Player not found' });
+      return;
+    }
+    const [player] = room.players.splice(index, 1);
+    if (player.socketId) {
+      io.to(player.socketId).emit('room:kicked');
+      io.sockets.sockets.get(player.socketId)?.leave(room.code);
+    }
     emitRoom(room);
     reply?.({ ok: true });
   });
