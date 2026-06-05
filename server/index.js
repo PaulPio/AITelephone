@@ -177,33 +177,54 @@ function startGame(room) {
     starterId: player.id,
     links: []
   }));
-  room.players.forEach((player, index) => {
-    room.promptOptions[player.id] = pickPromptOptionsForPlayer(room, player.id, index);
-  });
+  room.promptOptions = buildPromptOptions(room);
   room.round = 1;
   room.revealIndex = 0;
   beginPromptChoice(room);
 }
 
-function buildPromptPool(room, excludedPlayerId = null) {
-  const submitted = room.players
-    .filter((player) => player.id !== excludedPlayerId)
-    .flatMap((player) => player.prompts || []);
-  return [...submitted, ...seedWords].map(cleanPrompt).filter(Boolean);
+function buildPromptOptions(room) {
+  const optionsByPlayer = Object.fromEntries(room.players.map((player) => [player.id, []]));
+  const customPrompts = room.players.flatMap((player) =>
+    uniquePrompts(player.prompts).map((prompt) => ({ prompt, authorId: player.id }))
+  );
+
+  customPrompts.forEach((entry, index) => {
+    const candidates = room.players
+      .filter((player) => player.id !== entry.authorId)
+      .filter((player) => optionsByPlayer[player.id].length < 3)
+      .sort((a, b) => optionsByPlayer[a.id].length - optionsByPlayer[b.id].length);
+    const preferred = candidates[index % Math.max(candidates.length, 1)];
+    const target = preferred || room.players.find((player) => optionsByPlayer[player.id].length < 3);
+    if (!target) return;
+    addPromptOption(optionsByPlayer[target.id], entry.prompt);
+  });
+
+  room.players.forEach((player, playerIndex) => {
+    const fallbackPool = [
+      ...customPrompts.filter((entry) => entry.authorId !== player.id).map((entry) => entry.prompt),
+      ...seedWords
+    ];
+    let fallbackIndex = playerIndex;
+    while (optionsByPlayer[player.id].length < 3) {
+      addPromptOption(optionsByPlayer[player.id], fallbackPool[fallbackIndex % fallbackPool.length]);
+      fallbackIndex += 1;
+    }
+    optionsByPlayer[player.id] = optionsByPlayer[player.id].slice(0, 3);
+  });
+
+  return optionsByPlayer;
 }
 
-function pickPromptOptionsForPlayer(room, playerId, offset) {
-  return pickPromptOptions(buildPromptPool(room, playerId), offset);
+function uniquePrompts(prompts) {
+  return [...new Set((prompts || []).map(cleanPrompt).filter(Boolean))];
 }
 
-function pickPromptOptions(promptPool, offset) {
-  const unique = [...new Set(promptPool)];
-  const rotated = [...unique.slice(offset), ...unique.slice(0, offset)];
-  const options = rotated.slice(0, 3);
-  while (options.length < 3) {
-    options.push(seedWords[(offset + options.length) % seedWords.length]);
+function addPromptOption(options, prompt) {
+  const clean = cleanPrompt(prompt);
+  if (clean && !options.includes(clean)) {
+    options.push(clean);
   }
-  return options.slice(0, 3);
 }
 
 function beginPromptChoice(room) {
