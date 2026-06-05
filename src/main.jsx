@@ -87,7 +87,7 @@ function App() {
         <section className="panel intro-panel">
           <div>
             <p className="eyebrow">Localhost mock demo</p>
-            <h1>Gartic AI, cursed mode</h1>
+            <h1>Gartic AI</h1>
             <p className="lede">
               Draw a prompt, let the mock AI make a fake cursed render, describe that image, then pass the words onward.
             </p>

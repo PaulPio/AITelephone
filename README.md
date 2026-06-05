@@ -1,4 +1,4 @@
-# AITelephone
+# Gartic AI
 
 Localhost demo for a cursed Gartic Phone-style drawing game.
 
