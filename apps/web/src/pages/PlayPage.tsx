@@ -118,7 +118,7 @@ export function PlayPage({ accessToken, email }: Props) {
     async (blob: Blob) => {
       if (!room) return;
       if (!playerId) return;
-      if (submitLock.current || submitting) return;
+      if (submitLock.current) return;
       if (room.state !== "DRAWING") return;
       if (myPlayer?.submitted) return;
       submitLock.current = true;
@@ -137,17 +137,25 @@ export function PlayPage({ accessToken, email }: Props) {
         const data = (await res.json()) as { drawingUrl?: string; error?: string };
         if (!res.ok) throw new Error(data.error ?? "Upload failed");
 
+        if (!data.drawingUrl) throw new Error("Upload returned no drawing URL");
+
         await emit(CLIENT_EVENTS.SUBMIT_DRAWING, {
           drawingUrl: data.drawingUrl,
         });
+        setError(null);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Submit failed");
+        const msg = e instanceof Error ? e.message : "Submit failed";
+        setError(
+          msg.includes("fetch") || msg === "Failed to fetch"
+            ? "Could not reach server — check network or try again"
+            : msg
+        );
       } finally {
         submitLock.current = false;
         setSubmitting(false);
       }
     },
-    [room, playerId, accessToken, emit, submitting, myPlayer?.submitted]
+    [room, playerId, accessToken, emit, myPlayer?.submitted]
   );
 
   const onExport = useCallback(

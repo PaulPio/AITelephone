@@ -25,10 +25,10 @@ export class RoomRepository {
   async createRoom(
     authUserId: string,
     hostName: string,
-    minPlayers = 3,
+    minPlayers = 2,
     maxPlayers = 16
   ): Promise<{ room: RoomSnapshot; playerId: string }> {
-    const min = Math.min(8, Math.max(3, minPlayers));
+    const min = Math.min(8, Math.max(2, minPlayers));
     const code = await this.uniqueCode();
     const { data: roomRow, error: roomErr } = await supabase
       .from("rooms")

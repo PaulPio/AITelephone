@@ -1,6 +1,14 @@
+function parseCorsOrigins(raw: string | undefined): string[] {
+  const list = (raw ?? "http://localhost:5173")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return list.length > 0 ? list : ["http://localhost:5173"];
+}
+
 export const config = {
   port: Number(process.env.PORT ?? 3001),
-  corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:5173",
+  corsOrigins: parseCorsOrigins(process.env.CORS_ORIGIN),
   drawTimerSec: Number(process.env.DRAW_TIMER_SEC ?? 30),
   aiConcurrency: Number(process.env.AI_CONCURRENCY ?? 6),
   aiTimeoutMs: Number(process.env.AI_TIMEOUT_MS ?? 90_000),

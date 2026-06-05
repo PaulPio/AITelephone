@@ -76,6 +76,7 @@ export function registerSocketHandlers(io: Server, engine: GameEngine) {
         };
         if (!roomId || !playerId) throw new Error("Not in a room");
         await engine.startGame(roomId, playerId);
+        await engine.broadcastRoom(roomId);
         ack?.({ ok: true });
       } catch (e) {
         ack?.({ error: e instanceof Error ? e.message : "Failed" });

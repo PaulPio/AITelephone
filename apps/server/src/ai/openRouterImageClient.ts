@@ -28,7 +28,7 @@ export async function renderDoodleViaOpenRouter(
     headers: {
       Authorization: `Bearer ${config.openRouterApiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": config.corsOrigin || "https://drift.game",
+      "HTTP-Referer": config.corsOrigins[0] ?? "https://drift.game",
       "X-Title": "DRIFT",
     },
     body: JSON.stringify({

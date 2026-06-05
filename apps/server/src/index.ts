@@ -8,7 +8,7 @@ import { drawingsRouter } from "./routes/drawings.js";
 import { registerSocketHandlers } from "./socket/handlers.js";
 
 const app = express();
-app.use(cors({ origin: config.corsOrigin, credentials: true }));
+app.use(cors({ origin: config.corsOrigins, credentials: true }));
 app.use(express.json());
 
 app.get("/health", (_req, res) => {
@@ -19,7 +19,7 @@ app.use("/api/drawing", drawingsRouter);
 
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: config.corsOrigin, credentials: true },
+  cors: { origin: config.corsOrigins, credentials: true },
 });
 
 const engine = new GameEngine(io);

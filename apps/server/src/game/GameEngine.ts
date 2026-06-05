@@ -183,33 +183,37 @@ export class GameEngine {
     drawingUrl: string
   ): Promise<void> {
     let room = await this.repo.loadRoom(roomId);
-    if (room.state !== "DRAWING" && room.state !== "GENERATING") return;
+    if (room.state !== "DRAWING" && room.state !== "GENERATING") {
+      throw new Error("Not in drawing phase");
+    }
 
     const player = room.players.find((p) => p.id === playerId);
-    if (!player) return;
+    if (!player) throw new Error("Player not in room");
 
     const chain = chainForPlayer(room, playerId);
-    if (!chain) return;
+    if (!chain) throw new Error("No drawing assignment for this player");
 
     const roundKey = this.roomRoundKey(roomId, room.round);
 
     if (chain.links.some((l) => l.type === "image" && l.round === room.round)) {
-      return;
+      throw new Error("Round already finished");
     }
 
     if (player.submitted) {
       const supersede = canSupersedeBlankDrawing(room, playerId, drawingUrl);
-      if (!supersede.ok) return;
+      if (!supersede.ok) throw new Error("Already submitted");
       await this.repo.updateLinkContent(supersede.linkId, drawingUrl);
+      await this.broadcastRoom(roomId);
       await this.restartGeneratingForRound(roomId, room.round);
       return;
     }
 
     if (this.generationJobs.has(roundKey)) {
       const supersede = canSupersedeBlankDrawing(room, playerId, drawingUrl);
-      if (!supersede.ok) return;
+      if (!supersede.ok) throw new Error("Already submitted");
       await this.repo.updateLinkContent(supersede.linkId, drawingUrl);
       await this.repo.setPlayerSubmitted(roomId, playerId, true);
+      await this.broadcastRoom(roomId);
       await this.restartGeneratingForRound(roomId, room.round);
       return;
     }
@@ -222,6 +226,7 @@ export class GameEngine {
       drawingUrl
     );
     await this.repo.setPlayerSubmitted(roomId, playerId, true);
+    await this.broadcastRoom(roomId);
 
     room = await this.repo.loadRoom(roomId);
     if (this.allPlayersSubmitted(room)) {

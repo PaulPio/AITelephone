@@ -1,6 +1,6 @@
 import { CLIENT_EVENTS } from "@drift/shared";
 import { QRCodeSVG } from "qrcode.react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PUBLIC_APP_URL, skipAiMode } from "../lib/config";
 import { buildHostProjectorView } from "../lib/hostProjector";
 import {
@@ -18,7 +18,7 @@ type Props = {
 
 export function HostPage({ accessToken }: Props) {
   const [name, setName] = useState("Host");
-  const [minPlayers, setMinPlayers] = useState(3);
+  const [minPlayers, setMinPlayers] = useState(2);
   const cached = demoAuthBypass ? loadDemoSession() : null;
   const [roomCreated, setRoomCreated] = useState(false);
   const [savedRoomCode, setSavedRoomCode] = useState(
@@ -26,6 +26,7 @@ export function HostPage({ accessToken }: Props) {
   );
   const [reconnecting, setReconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const autoRejoined = useRef(false);
 
   const { connected, room, generating, revealStep, emit } =
     useGameSocket(accessToken, name);
@@ -76,6 +77,24 @@ export function HostPage({ accessToken }: Props) {
     if (session.minPlayers) setMinPlayers(session.minPlayers);
     if (session.roomCode) setSavedRoomCode(session.roomCode);
   }, [demoAuthBypass]);
+
+  useEffect(() => {
+    if (
+      !demoAuthBypass ||
+      !connected ||
+      room ||
+      reconnecting ||
+      autoRejoined.current
+    ) {
+      return;
+    }
+    const session = loadDemoSession();
+    if (session?.path !== "/host" || session.roomCode.length < 4) return;
+    autoRejoined.current = true;
+    setRoomCreated(true);
+    void rejoinRoom(session.roomCode, session.displayName || name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot host reconnect
+  }, [demoAuthBypass, connected, room, reconnecting]);
 
   useEffect(() => {
     if (!room || !demoAuthBypass) return;
@@ -168,12 +187,12 @@ export function HostPage({ accessToken }: Props) {
             </>
           )}
           <label className="label" style={{ marginTop: "1rem" }}>
-            Min players to start (3–8)
+            Min players to start (2–8)
           </label>
           <input
             className="input"
             type="number"
-            min={3}
+            min={2}
             max={8}
             value={minPlayers}
             onChange={(e) => setMinPlayers(Number(e.target.value))}
@@ -243,15 +262,23 @@ export function HostPage({ accessToken }: Props) {
             </div>
 
             {room.state === "LOBBY" && (
-              <button
-                type="button"
-                className="btn"
-                style={{ marginTop: "1rem" }}
-                disabled={!canStart}
-                onClick={() => void startGame()}
-              >
-                Start game
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ marginTop: "1rem" }}
+                  disabled={!canStart || !connected}
+                  onClick={() => void startGame()}
+                >
+                  Start game
+                </button>
+                {!canStart && (
+                  <p className="muted" style={{ marginTop: "0.5rem" }}>
+                    Need {room.minPlayers} players to start ({room.players.length} joined).
+                    Open /play on phones and join with code {room.code}.
+                  </p>
+                )}
+              </>
             )}
 
             {!projector && generating && (
