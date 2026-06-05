@@ -82,21 +82,25 @@ export class RoomRepository {
 
     if (error || !roomRow) throw new Error("Room not found");
 
-    if (roomRow.state !== "LOBBY") throw new Error("Game already started");
-
-    const { count } = await supabase
-      .from("players")
-      .select("*", { count: "exact", head: true })
-      .eq("room_id", roomRow.id);
-
-    if ((count ?? 0) >= roomRow.max_players) throw new Error("Room is full");
-
     const { data: existing } = await supabase
       .from("players")
       .select("id")
       .eq("room_id", roomRow.id)
       .eq("auth_user_id", authUserId)
       .maybeSingle();
+
+    if (roomRow.state !== "LOBBY" && !existing) {
+      throw new Error("Game already started");
+    }
+
+    const { count } = await supabase
+      .from("players")
+      .select("*", { count: "exact", head: true })
+      .eq("room_id", roomRow.id);
+
+    if (!existing && (count ?? 0) >= roomRow.max_players) {
+      throw new Error("Room is full");
+    }
 
     if (existing) {
       await supabase

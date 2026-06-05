@@ -1,0 +1,30 @@
+# Optional: deploy apps/server on Render if Railway CLI is unavailable.
+# Dashboard: New → Blueprint → connect this repo.
+services:
+  - type: web
+    name: drift-server
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build -w @drift/shared && npm run build -w @drift/server
+    startCommand: npm run start -w @drift/server
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: CORS_ORIGIN
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_VISION_MODEL
+        value: google/gemini-3.1-flash-lite
+      - key: OPENROUTER_IMAGE_MODEL
+        value: x-ai/grok-imagine-image-quality
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: DEMO_AUTH_BYPASS
+        value: "true"

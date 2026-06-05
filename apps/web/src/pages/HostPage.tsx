@@ -1,7 +1,13 @@
 import { CLIENT_EVENTS } from "@drift/shared";
 import { QRCodeSVG } from "qrcode.react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PUBLIC_APP_URL } from "../lib/config";
+import {
+  clearDemoSession,
+  loadDemoSession,
+  saveDemoSession,
+} from "../lib/demoSession";
+import { demoAuthBypass } from "../lib/supabase";
 import { useGameSocket } from "../hooks/useGameSocket";
 
 type Props = {
@@ -12,8 +18,12 @@ type Props = {
 export function HostPage({ accessToken }: Props) {
   const [name, setName] = useState("Host");
   const [minPlayers, setMinPlayers] = useState(3);
-  const [roomCreated, setRoomCreated] = useState(false);
+  const cached = demoAuthBypass ? loadDemoSession() : null;
+  const [roomCreated, setRoomCreated] = useState(
+    Boolean(cached?.path === "/host" && cached.roomCode)
+  );
   const [error, setError] = useState<string | null>(null);
+  const rejoinAttempted = useRef(false);
 
   const { connected, room, generating, revealStep, emit } = useGameSocket(
     accessToken,
@@ -29,10 +39,62 @@ export function HostPage({ accessToken }: Props) {
     return room.players.length >= room.minPlayers;
   }, [room]);
 
+  const rejoinRoom = async (roomCode: string, displayName: string) => {
+    setError(null);
+    const res = await emit<{ roomId: string; playerId: string }>(
+      CLIENT_EVENTS.JOIN_ROOM,
+      { code: roomCode, name: displayName, accessToken }
+    );
+    saveDemoSession({
+      path: "/host",
+      roomCode: roomCode.toUpperCase(),
+      displayName,
+      playerId: res.playerId,
+      minPlayers,
+    });
+    setRoomCreated(true);
+  };
+
+  useEffect(() => {
+    if (!demoAuthBypass || !connected || room || rejoinAttempted.current) return;
+    const session = loadDemoSession();
+    if (session?.path !== "/host" || !session.roomCode) return;
+    rejoinAttempted.current = true;
+    if (session.minPlayers) setMinPlayers(session.minPlayers);
+    if (session.displayName) setName(session.displayName);
+    void rejoinRoom(session.roomCode, session.displayName || name).catch((e) => {
+      rejoinAttempted.current = false;
+      const msg = e instanceof Error ? e.message : "Rejoin failed";
+      if (msg.includes("Room not found")) clearDemoSession();
+      setError(msg);
+      setRoomCreated(false);
+    });
+  }, [connected, room, demoAuthBypass, accessToken, name, minPlayers, emit]);
+
+  useEffect(() => {
+    if (!room || !demoAuthBypass) return;
+    saveDemoSession({
+      path: "/host",
+      roomCode: room.code,
+      displayName: name,
+      minPlayers: room.minPlayers,
+    });
+  }, [room?.code, room?.minPlayers, name, demoAuthBypass]);
+
   const createRoom = async () => {
     setError(null);
     try {
-      await emit(CLIENT_EVENTS.CREATE_ROOM, { minPlayers });
+      const res = await emit<{ code: string; roomId: string; playerId: string }>(
+        CLIENT_EVENTS.CREATE_ROOM,
+        { minPlayers }
+      );
+      saveDemoSession({
+        path: "/host",
+        roomCode: res.code,
+        displayName: name,
+        playerId: res.playerId,
+        minPlayers,
+      });
       setRoomCreated(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
@@ -64,6 +126,12 @@ export function HostPage({ accessToken }: Props) {
   return (
     <div className="page page-host">
       <h1>DRIFT — Host</h1>
+
+      {roomCreated && !room && (
+        <p className="muted" style={{ marginTop: "1rem" }}>
+          {connected ? "Reconnecting to your room…" : "Connecting…"}
+        </p>
+      )}
 
       {!roomCreated && (
         <div className="card">

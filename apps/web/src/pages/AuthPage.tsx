@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getOrCreateDemoToken, loadDemoSession } from "../lib/demoSession";
 import { demoAuthBypass, supabase } from "../lib/supabase";
 
 type Props = {
@@ -26,7 +27,9 @@ export function AuthPage({ onAuthed }: Props) {
   };
 
   const demoLogin = () => {
-    onAuthed(`demo:${crypto.randomUUID()}`, "demo@drift.local");
+    const token = getOrCreateDemoToken();
+    const cached = loadDemoSession();
+    onAuthed(token, cached?.email ?? "demo@drift.local");
   };
 
   return (

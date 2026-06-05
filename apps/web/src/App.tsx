@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { supabase } from "./lib/supabase";
+import { demoHomePath, loadDemoSession } from "./lib/demoSession";
+import { demoAuthBypass, supabase } from "./lib/supabase";
 import { AuthPage } from "./pages/AuthPage";
 import { HostPage } from "./pages/HostPage";
 import { PlayPage } from "./pages/PlayPage";
@@ -12,6 +13,13 @@ function AppRoutes() {
 
   useEffect(() => {
     let cancelled = false;
+
+    const demo = demoAuthBypass ? loadDemoSession() : null;
+    if (demo?.token) {
+      setToken(demo.token);
+      setEmail(demo.email);
+      setReady(true);
+    }
 
     void supabase.auth
       .getSession()
@@ -65,7 +73,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/play" element={<PlayPage accessToken={token} email={email} />} />
       <Route path="/host" element={<HostPage accessToken={token} email={email} />} />
-      <Route path="/" element={<Navigate to="/host" replace />} />
+      <Route path="/" element={<Navigate to={demoHomePath()} replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

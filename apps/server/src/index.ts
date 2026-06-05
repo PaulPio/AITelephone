@@ -25,6 +25,6 @@ const io = new Server(httpServer, {
 const engine = new GameEngine(io);
 registerSocketHandlers(io, engine);
 
-httpServer.listen(config.port, () => {
-  console.log(`DRIFT server listening on :${config.port}`);
+httpServer.listen(config.port, "0.0.0.0", () => {
+  console.log(`DRIFT server listening on 0.0.0.0:${config.port}`);
 });

@@ -1,8 +1,14 @@
 import { CLIENT_EVENTS } from "@drift/shared";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { DrawCanvas } from "../components/DrawCanvas";
 import { API_URL } from "../lib/config";
+import {
+  clearDemoSession,
+  loadDemoSession,
+  saveDemoSession,
+} from "../lib/demoSession";
+import { demoAuthBypass } from "../lib/supabase";
 import { useGameSocket } from "../hooks/useGameSocket";
 
 type Props = {
@@ -12,10 +18,19 @@ type Props = {
 
 export function PlayPage({ accessToken, email }: Props) {
   const [params] = useSearchParams();
+  const cached = demoAuthBypass ? loadDemoSession() : null;
   const codeFromUrl = params.get("code") ?? "";
-  const [name, setName] = useState(email.split("@")[0] ?? "Player");
-  const [code, setCode] = useState(codeFromUrl);
+  const [name, setName] = useState(
+    cached?.displayName ?? email.split("@")[0] ?? "Player"
+  );
+  const [code, setCode] = useState(
+    codeFromUrl || (cached?.path === "/play" ? cached.roomCode : "") || ""
+  );
   const [joined, setJoined] = useState(false);
+  const pendingRejoin = Boolean(
+    cached?.path === "/play" && cached.roomCode.length >= 4
+  );
+  const rejoinAttempted = useRef(false);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [exportTrigger, setExportTrigger] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -51,10 +66,60 @@ export function PlayPage({ accessToken, email }: Props) {
       );
       setPlayerId(res.playerId);
       setJoined(true);
+      if (demoAuthBypass) {
+        saveDemoSession({
+          path: "/play",
+          roomCode: code.toUpperCase(),
+          displayName: name,
+          playerId: res.playerId,
+        });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Join failed");
     }
   };
+
+  useEffect(() => {
+    if (!demoAuthBypass || !connected || joined || rejoinAttempted.current) return;
+    const session = loadDemoSession();
+    const roomCode = (codeFromUrl || code || session?.roomCode || "").toUpperCase();
+    if (session?.path !== "/play" || roomCode.length < 4) return;
+    rejoinAttempted.current = true;
+    if (session.displayName) setName(session.displayName);
+    setCode(roomCode);
+    void (async () => {
+      setError(null);
+      try {
+        const res = await emit<{ roomId: string; playerId: string }>(
+          CLIENT_EVENTS.JOIN_ROOM,
+          { code: roomCode, name: session.displayName || name, accessToken }
+        );
+        setPlayerId(res.playerId);
+        setJoined(true);
+        saveDemoSession({
+          path: "/play",
+          roomCode,
+          displayName: session.displayName || name,
+          playerId: res.playerId,
+        });
+      } catch (e) {
+        rejoinAttempted.current = false;
+        const msg = e instanceof Error ? e.message : "Rejoin failed";
+        if (msg.includes("Room not found")) clearDemoSession();
+        setError(msg);
+      }
+    })();
+  }, [connected, joined, demoAuthBypass, codeFromUrl, code, accessToken, name, emit]);
+
+  useEffect(() => {
+    if (!room || !demoAuthBypass) return;
+    saveDemoSession({
+      path: "/play",
+      roomCode: room.code,
+      displayName: name,
+      playerId: playerId ?? undefined,
+    });
+  }, [room?.code, name, playerId, demoAuthBypass]);
 
   const uploadAndSubmit = useCallback(
     async (blob: Blob) => {
@@ -109,10 +174,14 @@ export function PlayPage({ accessToken, email }: Props) {
             type="button"
             className="btn"
             style={{ marginTop: "1rem", width: "100%" }}
-            disabled={!connected || code.length < 4}
+            disabled={!connected || code.length < 4 || pendingRejoin}
             onClick={() => void join()}
           >
-            {connected ? "Join" : "Connecting…"}
+            {pendingRejoin && connected
+              ? "Rejoining…"
+              : connected
+                ? "Join"
+                : "Connecting…"}
           </button>
           {error && <p style={{ color: "crimson" }}>{error}</p>}
         </div>

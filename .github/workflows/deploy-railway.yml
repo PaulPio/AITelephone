@@ -1,0 +1,28 @@
+name: Deploy server to Railway
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "apps/server/**"
+      - "packages/shared/**"
+      - "railway.toml"
+      - "Dockerfile"
+      - ".github/workflows/deploy-railway.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    container: ghcr.io/railwayapp/cli:latest
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Railway
+        run: |
+          if [ -n "${{ secrets.RAILWAY_SERVICE_ID }}" ]; then
+            railway up --ci --service="${{ secrets.RAILWAY_SERVICE_ID }}"
+          else
+            railway up --ci
+          fi

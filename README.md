@@ -37,13 +37,43 @@ Set `DEMO_AUTH_BYPASS=true` on server and `VITE_DEMO_AUTH_BYPASS=true` on web fo
 
 ## Deploy
 
-| Service | Target |
-|---------|--------|
-| `apps/web` | Vercel — set `VITE_*` env vars |
-| `apps/server` | Railway — `railway.toml`; set `OPENROUTER_*`, `SUPABASE_*`, `CORS_ORIGIN` |
-| Database | Supabase hosted |
+| Service | Target | Status |
+|---------|--------|--------|
+| `apps/web` | **Vercel** (monorepo root `vercel.json`) | https://web-paulpios-projects.vercel.app |
+| `apps/server` | **Railway** (`railway.toml` or `Dockerfile`) | needs `RAILWAY_TOKEN` |
+| Database | Supabase **DRIFT** | hosted |
 
-Point `VITE_WS_URL` and `VITE_API_URL` at your Railway URL.
+### Web (Vercel)
+
+```bash
+npx vercel@latest link --yes --project web   # from repo root
+bash scripts/sync-vercel-env.sh
+npx vercel@latest --prod --yes
+```
+
+### Server (Railway)
+
+1. Create a project at [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub** (`PaulPio/AITelephone`) *or* use CLI:
+2. Project → **Settings → Tokens** → create token.
+3. In a normal terminal (interactive):
+
+```bash
+export RAILWAY_TOKEN=your_project_token
+bash scripts/sync-railway-env.sh
+npx @railway/cli@latest up --ci
+```
+
+4. Copy the public HTTPS URL (e.g. `https://drift-production.up.railway.app`).
+5. On Railway, set `CORS_ORIGIN=https://web-paulpios-projects.vercel.app`.
+6. Finish wiring the web app:
+
+```bash
+bash scripts/finish-deploy.sh https://YOUR-RAILWAY-URL.up.railway.app
+```
+
+**GitHub Actions:** add repo secret `RAILWAY_TOKEN`, then run workflow **Deploy server to Railway**.
+
+**Render alternative:** connect repo with root `render.yaml` if you prefer Render over Railway.
 
 ## Monorepo
 
