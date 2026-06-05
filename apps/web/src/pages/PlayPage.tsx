@@ -1,7 +1,9 @@
 import { CLIENT_EVENTS, deriveRoundStartForPlayer } from "@drift/shared";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { DrawCanvas } from "../components/DrawCanvas";
+import { GamePageShell } from "../components/GamePageShell";
+import { PageActions } from "../components/PageActions";
 import { API_URL, skipAiMode } from "../lib/config";
 import {
   clearDemoSession,
@@ -17,6 +19,7 @@ type Props = {
 };
 
 export function PlayPage({ accessToken, email }: Props) {
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const cached = demoAuthBypass ? loadDemoSession() : null;
   const codeFromUrl = params.get("code") ?? "";
@@ -165,10 +168,21 @@ export function PlayPage({ accessToken, email }: Props) {
     [uploadAndSubmit]
   );
 
+  const goHome = () => {
+    setJoined(false);
+    setPlayerId(null);
+    setError(null);
+    saveDemoSession({ path: "/play", roomCode: "" });
+    navigate("/");
+  };
+
   if (!joined) {
     return (
       <div className="page">
         <h1>Join game</h1>
+        <button type="button" className="home-link" onClick={goHome}>
+          ← Back to home
+        </button>
         <div className="card">
           <label className="label">Display name</label>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
@@ -197,13 +211,16 @@ export function PlayPage({ accessToken, email }: Props) {
           </button>
           {error && <p style={{ color: "crimson" }}>{error}</p>}
         </div>
+        <PageActions onHome={goHome} />
       </div>
     );
   }
 
+  let content: ReactNode;
+
   if (room?.state === "LOBBY") {
-    return (
-      <div className="page">
+    content = (
+      <>
         <h1>Lobby</h1>
         <p className="muted">Room {room.code} · waiting for host…</p>
         <ul>
@@ -211,17 +228,15 @@ export function PlayPage({ accessToken, email }: Props) {
             <li key={p.id}>{p.name}</li>
           ))}
         </ul>
-      </div>
+      </>
     );
-  }
-
-  if (generating || room?.state === "GENERATING") {
+  } else if (generating || room?.state === "GENERATING") {
     const progress =
       generating && generating.count > 0
         ? `${generating.completed}/${generating.count}`
         : null;
-    return (
-      <div className="page">
+    content = (
+      <>
         <h1>{skipAiMode ? "Next round…" : "Reimagining…"}</h1>
         <p className="muted">
           {skipAiMode
@@ -230,34 +245,28 @@ export function PlayPage({ accessToken, email }: Props) {
           {progress ? ` (${progress})` : ""}.
         </p>
         <p className="muted">Hang tight — the next round starts soon.</p>
-      </div>
+      </>
     );
-  }
-
-  if (room?.state === "DRAWING" && myPlayer?.submitted) {
+  } else if (room?.state === "DRAWING" && myPlayer?.submitted) {
     const others = room.players.filter((p) => !p.submitted).length;
-    return (
-      <div className="page">
+    content = (
+      <>
         <h1>Submitted ✓</h1>
         <p className="muted">
           Waiting for {others === 0 ? "the timer" : `${others} player${others === 1 ? "" : "s"}`}…
         </p>
-      </div>
+      </>
     );
-  }
-
-  if (room?.state === "REVEAL" || room?.state === "GAME_OVER") {
-    return (
-      <div className="page">
+  } else if (room?.state === "REVEAL" || room?.state === "GAME_OVER") {
+    content = (
+      <>
         <h1>Done</h1>
         <p className="muted">Watch the big screen for the reveal.</p>
-      </div>
+      </>
     );
-  }
-
-  if (effectiveRoundStart && room?.state === "DRAWING") {
-    return (
-      <div className="page">
+  } else if (effectiveRoundStart && room?.state === "DRAWING") {
+    content = (
+      <>
         <p className="muted">
           Round {effectiveRoundStart.round}/{effectiveRoundStart.totalTurns} — draw now!
         </p>
@@ -295,13 +304,11 @@ export function PlayPage({ accessToken, email }: Props) {
           {submitting ? "Submitting…" : "Submit drawing"}
         </button>
         {error && <p style={{ color: "crimson", marginTop: "0.75rem" }}>{error}</p>}
-      </div>
+      </>
     );
+  } else {
+    content = <p className="muted">Waiting for round…</p>;
   }
 
-  return (
-    <div className="page">
-      <p className="muted">Waiting for round…</p>
-    </div>
-  );
+  return <GamePageShell onHome={goHome}>{content}</GamePageShell>;
 }

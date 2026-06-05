@@ -163,3 +163,29 @@ h3 {
   letter-spacing: 0.2em;
   text-align: center;
 }
+
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  width: 100%;
+  position: sticky;
+  bottom: 0;
+  padding: 0.75rem 0 0.5rem;
+  background: linear-gradient(to top, var(--paper) 70%, transparent);
+}
+
+.home-link {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: var(--ink-muted);
+  text-decoration: underline;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: var(--font-body);
+}

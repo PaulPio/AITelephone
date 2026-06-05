@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { demoHomePath, loadDemoSession } from "./lib/demoSession";
+import { loadDemoSession } from "./lib/demoSession";
 import { demoAuthBypass, supabase } from "./lib/supabase";
 import { AuthPage } from "./pages/AuthPage";
+import { HomePage } from "./pages/HomePage";
 import { HostPage } from "./pages/HostPage";
 import { PlayPage } from "./pages/PlayPage";
 
@@ -71,9 +72,9 @@ function AppRoutes() {
 
   return (
     <Routes>
+      <Route path="/" element={<HomePage />} />
       <Route path="/play" element={<PlayPage accessToken={token} email={email} />} />
       <Route path="/host" element={<HostPage accessToken={token} email={email} />} />
-      <Route path="/" element={<Navigate to={demoHomePath()} replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

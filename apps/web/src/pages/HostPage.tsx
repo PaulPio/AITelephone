@@ -1,6 +1,8 @@
 import { CLIENT_EVENTS } from "@drift/shared";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { PageActions } from "../components/PageActions";
 import { PUBLIC_APP_URL, skipAiMode } from "../lib/config";
 import { buildHostProjectorView } from "../lib/hostProjector";
 import {
@@ -17,6 +19,7 @@ type Props = {
 };
 
 export function HostPage({ accessToken }: Props) {
+  const navigate = useNavigate();
   const [name, setName] = useState("Host");
   const [minPlayers, setMinPlayers] = useState(2);
   const cached = demoAuthBypass ? loadDemoSession() : null;
@@ -139,6 +142,18 @@ export function HostPage({ accessToken }: Props) {
     await emit(CLIENT_EVENTS.HOST_NEXT, {});
   };
 
+  const goHome = () => {
+    saveDemoSession({ path: "/host" });
+    setRoomCreated(false);
+    autoRejoined.current = false;
+    navigate("/");
+  };
+
+  const startNewGame = async () => {
+    autoRejoined.current = false;
+    await createRoom();
+  };
+
   const projector = useMemo(() => buildHostProjectorView(room), [room]);
 
   const currentReveal = useMemo(() => {
@@ -159,6 +174,9 @@ export function HostPage({ accessToken }: Props) {
   return (
     <div className="page page-host">
       <h1>DRIFT — Host</h1>
+      <button type="button" className="home-link" onClick={goHome}>
+        ← Back to home
+      </button>
 
       {reconnecting && !room && (
         <p className="muted" style={{ marginTop: "1rem" }}>
@@ -341,6 +359,12 @@ export function HostPage({ accessToken }: Props) {
               <p>Thanks for playing DRIFT.</p>
             </div>
           )}
+
+          <PageActions
+            onNewGame={() => startNewGame()}
+            onHome={goHome}
+            newGameDisabled={!connected}
+          />
         </>
       )}
 
