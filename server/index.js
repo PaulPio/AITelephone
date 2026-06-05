@@ -41,7 +41,7 @@ const makeCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 4);
 const falKey = process.env.FAL_KEY || process.env.FAL_API_KEY || process.env.API_KEY;
 const forceMockAi = String(process.env.MOCK_AI || '').toLowerCase() === 'true';
 let lastAiError = null;
-const aiTimeoutMs = Number(process.env.AI_TIMEOUT_MS || 25000);
+const aiTimeoutMs = Number(process.env.AI_TIMEOUT_MS || 60000);
 
 if (falKey && !forceMockAi) {
   fal.config({ credentials: falKey });

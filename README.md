@@ -63,6 +63,12 @@ To force the cheap mock generator even when a key exists:
 MOCK_AI=true
 ```
 
+Fal generations time out after 60 seconds by default. To tune that:
+
+```bash
+AI_TIMEOUT_MS=60000
+```
+
 The current model endpoint is:
 
 ```text

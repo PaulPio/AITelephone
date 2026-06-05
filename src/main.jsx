@@ -272,21 +272,31 @@ function DrawingRound({ room, task, playerId }) {
   const [tool, setTool] = useState('brush');
   const [timeLeft, setTimeLeft] = useState(0);
   const canvasRef = useRef(null);
+  const submittedRef = useRef(false);
   const player = room.players.find((item) => item.id === playerId);
 
   useEffect(() => {
-    setSubmitted(Boolean(player?.submitted));
+    const nextSubmitted = Boolean(player?.submitted);
+    submittedRef.current = nextSubmitted;
+    setSubmitted(nextSubmitted);
   }, [player?.submitted, room.round]);
 
   useEffect(() => {
-    const tick = () => setTimeLeft(Math.max(0, Math.ceil(((task?.deadline || Date.now()) - Date.now()) / 1000)));
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil(((task?.deadline || Date.now()) - Date.now()) / 1000));
+      setTimeLeft(remaining);
+      if (task?.deadline && Date.now() >= task.deadline && !submittedRef.current) {
+        submitDrawing();
+      }
+    };
     tick();
     const timer = setInterval(tick, 250);
     return () => clearInterval(timer);
   }, [task?.deadline]);
 
   async function submitDrawing() {
-    if (submitted || !canvasRef.current) return;
+    if (submittedRef.current || !canvasRef.current) return;
+    submittedRef.current = true;
     setSubmitted(true);
     const blob = await canvasRef.current.exportBlob();
     const form = new FormData();
@@ -342,27 +352,39 @@ function DescriptionRound({ room, task, playerId }) {
   const [submitted, setSubmitted] = useState(false);
   const [description, setDescription] = useState('');
   const [timeLeft, setTimeLeft] = useState(0);
+  const submittedRef = useRef(false);
+  const descriptionRef = useRef('');
   const player = room.players.find((item) => item.id === playerId);
 
   useEffect(() => {
-    setSubmitted(Boolean(player?.submitted));
+    const nextSubmitted = Boolean(player?.submitted);
+    submittedRef.current = nextSubmitted;
+    setSubmitted(nextSubmitted);
   }, [player?.submitted, room.round]);
 
   useEffect(() => {
     setDescription('');
+    descriptionRef.current = '';
   }, [room.round, task?.chainId]);
 
   useEffect(() => {
-    const tick = () => setTimeLeft(Math.max(0, Math.ceil(((task?.deadline || Date.now()) - Date.now()) / 1000)));
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil(((task?.deadline || Date.now()) - Date.now()) / 1000));
+      setTimeLeft(remaining);
+      if (task?.deadline && Date.now() >= task.deadline && !submittedRef.current) {
+        submitDescription();
+      }
+    };
     tick();
     const timer = setInterval(tick, 250);
     return () => clearInterval(timer);
   }, [task?.deadline]);
 
   function submitDescription() {
-    if (submitted) return;
+    if (submittedRef.current) return;
+    submittedRef.current = true;
     setSubmitted(true);
-    socket.emit('description:submit', { description });
+    socket.emit('description:submit', { description: descriptionRef.current });
   }
 
   return (
@@ -383,7 +405,10 @@ function DescriptionRound({ room, task, playerId }) {
             What should the next player draw?
             <textarea
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={(event) => {
+                descriptionRef.current = event.target.value;
+                setDescription(event.target.value);
+              }}
               maxLength={140}
               disabled={submitted}
               placeholder="Example: a haunted dog wearing tiny boots"
