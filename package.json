@@ -1,0 +1,19 @@
+{
+  "name": "drift",
+  "private": true,
+  "workspaces": [
+    "packages/shared",
+    "apps/server",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:server": "npm run dev -w @drift/server",
+    "dev:web": "npm run dev -w @drift/web",
+    "build": "npm run build -w @drift/shared && npm run build -w @drift/server && npm run build -w @drift/web",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "plugins": {
+    "voltagent-subagents/voltagent-research": {
+      "enabled": true
+    },
+    "voltagent-subagents/voltagent-meta": {
+      "enabled": true
+    }
+  }
+}

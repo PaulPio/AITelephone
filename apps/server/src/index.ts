@@ -1,0 +1,30 @@
+import cors from "cors";
+import express from "express";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import { config } from "./config.js";
+import { GameEngine } from "./game/GameEngine.js";
+import { drawingsRouter } from "./routes/drawings.js";
+import { registerSocketHandlers } from "./socket/handlers.js";
+
+const app = express();
+app.use(cors({ origin: config.corsOrigin, credentials: true }));
+app.use(express.json());
+
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, service: "drift-server" });
+});
+
+app.use("/api/drawing", drawingsRouter);
+
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: { origin: config.corsOrigin, credentials: true },
+});
+
+const engine = new GameEngine(io);
+registerSocketHandlers(io, engine);
+
+httpServer.listen(config.port, () => {
+  console.log(`DRIFT server listening on :${config.port}`);
+});

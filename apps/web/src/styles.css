@@ -1,0 +1,165 @@
+:root {
+  --paper: #f4e8d1;
+  --paper-dark: #e8dcc8;
+  --ink: #3d2e24;
+  --ink-muted: #6b5a4a;
+  --canvas-bg: #fffef8;
+  --accent: #c45c3e;
+  --border: 3px solid var(--ink);
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "Source Sans 3", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--paper);
+  color: var(--ink);
+  background-image: radial-gradient(circle at 20% 10%, #fff8ee 0%, transparent 50%),
+    radial-gradient(circle at 80% 90%, #e6d4b8 0%, transparent 40%);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+
+.card {
+  background: var(--paper-dark);
+  border: var(--border);
+  border-radius: 4px;
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 1.25rem;
+}
+
+.btn {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 0.75rem 1.25rem;
+  border: var(--border);
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-secondary {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.input {
+  width: 100%;
+  padding: 0.75rem;
+  font-size: 1rem;
+  border: var(--border);
+  border-radius: 4px;
+  background: var(--canvas-bg);
+  color: var(--ink);
+}
+
+.label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  color: var(--ink-muted);
+}
+
+.page {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 1rem;
+  min-height: 100dvh;
+}
+
+.page-host {
+  max-width: 960px;
+}
+
+.muted {
+  color: var(--ink-muted);
+}
+
+.player-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.5rem;
+}
+
+.player-chip {
+  padding: 0.5rem;
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  background: var(--canvas-bg);
+}
+
+.player-chip.done {
+  background: #d4e8d4;
+}
+
+.countdown {
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  text-align: center;
+}
+
+.word-prompt {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  text-align: center;
+  padding: 1rem;
+  background: var(--canvas-bg);
+  border: var(--border);
+}
+
+.ref-image {
+  max-width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border: var(--border);
+  background: #fff;
+}
+
+.reveal-stage {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.reveal-media {
+  max-width: 100%;
+  max-height: 50vh;
+  border: var(--border);
+  box-shadow: 6px 6px 0 var(--ink);
+}
+
+.room-code {
+  font-family: var(--font-display);
+  font-size: 3rem;
+  letter-spacing: 0.2em;
+  text-align: center;
+}
