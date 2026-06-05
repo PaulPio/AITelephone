@@ -2,6 +2,7 @@ import { CLIENT_EVENTS } from "@drift/shared";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useState } from "react";
 import { PUBLIC_APP_URL } from "../lib/config";
+import { buildHostProjectorView } from "../lib/hostProjector";
 import {
   clearDemoSession,
   loadDemoSession,
@@ -119,14 +120,22 @@ export function HostPage({ accessToken }: Props) {
     await emit(CLIENT_EVENTS.HOST_NEXT, {});
   };
 
-  const currentReveal = revealStep ?? (room?.chains[room.revealChainIndex]
-    ? {
-        chainId: room.chains[room.revealChainIndex]!.id,
-        chainIndex: room.revealChainIndex,
-        links: room.chains[room.revealChainIndex]!.links,
-        chainCount: room.chains.length,
-      }
-    : null);
+  const projector = useMemo(() => buildHostProjectorView(room), [room]);
+
+  const currentReveal = useMemo(() => {
+    if (revealStep) return revealStep;
+    if (!room || room.state !== "REVEAL") return null;
+    const chain =
+      room.chains.find((c) => c.chainIndex === room.revealChainIndex) ??
+      room.chains.find((c) => c.chainIndex === 0);
+    if (!chain) return null;
+    return {
+      chainId: chain.id,
+      chainIndex: chain.chainIndex,
+      links: chain.links,
+      chainCount: room.chains.length,
+    };
+  }, [revealStep, room]);
 
   return (
     <div className="page page-host">
@@ -203,27 +212,62 @@ export function HostPage({ accessToken }: Props) {
                 room.state !== "GAME_OVER" &&
                 ` · turn ${room.round}/${room.config.numRounds}`}
             </p>
-            {room.state === "DRAWING" && turnWaiting && (
+            {projector && (
+              <div className="host-projector" style={{ marginTop: "1rem" }}>
+                {projector.phase === "drawing" && (
+                  <>
+                    <p>
+                      <strong>{projector.activePlayerName}</strong> is drawing (
+                      {projector.round}/{projector.totalTurns})
+                    </p>
+                    {projector.promptType === "word" && (
+                      <div className="word-prompt" style={{ marginTop: "0.75rem" }}>
+                        Draw: {projector.word}
+                      </div>
+                    )}
+                    {projector.promptType === "redraw" &&
+                      (projector.imageUrl ? (
+                        <>
+                          <p className="label" style={{ marginTop: "0.75rem" }}>
+                            Copy this AI image
+                          </p>
+                          <img
+                            className="ref-image"
+                            src={projector.imageUrl}
+                            alt="AI reference"
+                          />
+                        </>
+                      ) : (
+                        <p className="muted" style={{ marginTop: "0.75rem" }}>
+                          Waiting for AI reference image…
+                        </p>
+                      ))}
+                  </>
+                )}
+                {projector.phase === "generating" && (
+                  <>
+                    <p style={{ marginTop: "0.5rem" }}>
+                      AI is reimagining <strong>{projector.activePlayerName}</strong>
+                      &apos;s doodle…
+                    </p>
+                    {projector.drawingUrl && (
+                      <img
+                        className="ref-image"
+                        src={projector.drawingUrl}
+                        alt="Submitted doodle"
+                        style={{ marginTop: "0.75rem" }}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+            {!projector && room.state === "DRAWING" && turnWaiting && (
               <p style={{ marginTop: "0.5rem" }}>
                 <strong>{turnWaiting.activePlayerName}</strong> is drawing (
                 {turnWaiting.round}/{turnWaiting.totalTurns})
               </p>
             )}
-            {room.state === "DRAWING" && turnWaiting?.promptType === "word" && (
-              <div className="word-prompt" style={{ marginTop: "0.75rem" }}>
-                Prompt: {turnWaiting.word}
-              </div>
-            )}
-            {room.state === "DRAWING" &&
-              turnWaiting?.promptType === "redraw" &&
-              turnWaiting.image && (
-                <img
-                  className="ref-image"
-                  src={turnWaiting.image}
-                  alt="AI reference"
-                  style={{ marginTop: "0.75rem" }}
-                />
-              )}
             <div className="player-grid" style={{ marginTop: "0.75rem" }}>
               {room.players.map((p) => (
                 <div
@@ -248,10 +292,10 @@ export function HostPage({ accessToken }: Props) {
               </button>
             )}
 
-            {generating && !aiImageReady && (
+            {!projector && generating && !aiImageReady && (
               <p style={{ marginTop: "1rem" }}>AI is reimagining the doodle…</p>
             )}
-            {aiImageReady && (
+            {!projector && aiImageReady && (
               <div style={{ marginTop: "1rem", textAlign: "center" }}>
                 <p className="muted">AI result (turn {aiImageReady.round})</p>
                 <img
@@ -285,12 +329,15 @@ export function HostPage({ accessToken }: Props) {
                   <p className="muted">{stepLabel}</p>
                   {link.type === "word" ? (
                     <div className="word-prompt">{link.content}</div>
-                  ) : (
+                  ) : link.content.startsWith("http") ||
+                    link.content.startsWith("data:image") ? (
                     <img
                       className="reveal-media"
                       src={link.content}
                       alt={link.type}
                     />
+                  ) : (
+                    <p className="muted">Image unavailable</p>
                   )}
                 </div>
               );
