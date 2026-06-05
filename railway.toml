@@ -1,6 +1,7 @@
+# If no Dockerfile, Nixpacks uses these commands (monorepo root).
 [build]
 builder = "NIXPACKS"
-buildCommand = "npm install && npm run build -w @drift/shared && npm run build -w @drift/server"
+buildCommand = "npm ci && npm run build -w @drift/shared && npm run build -w @drift/server"
 
 [deploy]
 startCommand = "npm run start -w @drift/server"

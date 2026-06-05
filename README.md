@@ -53,6 +53,10 @@ npx vercel@latest --prod --yes
 
 ### Server (Railway)
 
+**If the build fails:** Railway uses the root `Dockerfile`. It must include all npm workspaces (`apps/web/package.json` is required even though only the server runs). Push the latest `Dockerfile` fix, then **Redeploy**.
+
+**Service settings:** Root directory = repo root (`.`). Deploy branch = `Features` or `main` (whichever you use).
+
 1. Create a project at [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub** (`PaulPio/AITelephone`) *or* use CLI:
 2. Project → **Settings → Tokens** → create token.
 3. In a normal terminal (interactive):
