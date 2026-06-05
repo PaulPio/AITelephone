@@ -434,11 +434,14 @@ async function createFalKontextImage(chain, drawingUrl) {
   const sourceImageUrl = await fal.storage.upload(new Blob([buffer], { type: contentType }));
   const latestText = [...chain.links].reverse().find((link) => ['word', 'description'].includes(link.type));
   const prompt = [
-    'Turn this player drawing into a realistic, uncanny, cursed image.',
-    'Preserve the main shapes, composition, and weird mistakes from the drawing.',
-    'Make it look like a real object or creature photographed or rendered with dramatic detail.',
-    'Do not make it cute, clean, or normal. Keep it funny, unsettling, and a little wrong.',
-    latestText?.text ? `The intended subject is: ${latestText.text}` : ''
+    'Create a hyperrealistic, high-detail version of this simple player doodle.',
+    'Use the drawing as the main structure: preserve the silhouette, pose, object placement, line proportions, and obvious mistakes.',
+    'Make it look like a bright, colorful, clean studio photograph or premium realistic 3D render, with natural lighting and crisp detail.',
+    'Use vivid but believable colors, playful color contrast, and clear subject/background separation.',
+    'The result should be cursed because the doodle is awkward: strange anatomy, odd proportions, misplaced features, funny textures, and slightly wrong realism.',
+    'Avoid horror styling, dark lighting, gore, grime, monsters, smoky shadows, generic scary imagery, muddy colors, monochrome palettes, and desaturated gray/brown looks.',
+    'Do not replace the drawing with an unrelated image. Do not make it polished or normal.',
+    latestText?.text ? `Subject to interpret from the doodle: ${latestText.text}` : ''
   ].filter(Boolean).join(' ');
 
   const result = await fal.subscribe('fal-ai/flux-pro/kontext', {
@@ -448,7 +451,7 @@ async function createFalKontextImage(chain, drawingUrl) {
       aspect_ratio: '1:1',
       num_images: 1,
       output_format: 'png',
-      guidance_scale: 3.5,
+      guidance_scale: 2.5,
       safety_tolerance: '2'
     }
   });
