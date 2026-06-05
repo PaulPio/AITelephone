@@ -71,6 +71,16 @@ function App() {
     socket.emit('room:join', { code: code.trim().toUpperCase(), name: nextName }, (reply) => remember(reply, nextName));
   }
 
+  function leaveRoom() {
+    socket.emit('room:leave', {}, () => {
+      sessionStorage.removeItem('roomCode');
+      sessionStorage.removeItem('playerId');
+      setRoom(null);
+      setTask(null);
+      setPlayerId('');
+    });
+  }
+
   if (!room) {
     return (
       <main className="shell intro">
@@ -105,7 +115,7 @@ function App() {
 
   return (
     <main className="app">
-      <Header room={room} currentPlayer={currentPlayer} />
+      <Header room={room} currentPlayer={currentPlayer} onLeave={leaveRoom} />
       <div className="layout">
         <section className="main-stage">
           {room.state === 'lobby' && <Lobby room={room} isHost={isHost} />}
@@ -124,7 +134,7 @@ function App() {
   );
 }
 
-function Header({ room, currentPlayer }) {
+function Header({ room, currentPlayer, onLeave }) {
   const joinUrl = `${location.origin}?room=${room.code}`;
   return (
     <header className="topbar">
@@ -136,6 +146,7 @@ function Header({ room, currentPlayer }) {
         <span>{currentPlayer?.name}</span>
         {currentPlayer?.isHost && <span className="badge"><Crown size={14} /> Host</span>}
         <button onClick={() => navigator.clipboard?.writeText(joinUrl)}>Copy join link</button>
+        <button onClick={onLeave}>Leave room</button>
       </div>
     </header>
   );
@@ -643,7 +654,9 @@ function linkLabel(link, room) {
 }
 
 function HostControls({ room, isHost }) {
-  if (!isHost) {
+  const hostMissing = !room.hostConnected;
+  const canReturnToLobby = isHost || hostMissing;
+  if (!canReturnToLobby) {
     return (
       <section className="panel compact">
         <p className="eyebrow">Host controls</p>
@@ -653,9 +666,9 @@ function HostControls({ room, isHost }) {
   }
   return (
     <section className="panel compact">
-      <p className="eyebrow">Host controls</p>
-      <button disabled={room.state !== 'lobby'} onClick={() => socket.emit('game:start', {})}><Play size={18} /> Start</button>
-      <button onClick={() => socket.emit('host:reset', {})}><Eraser size={18} /> Reset to lobby</button>
+      <p className="eyebrow">{isHost ? 'Host controls' : 'Host disconnected'}</p>
+      {isHost && <button disabled={room.state !== 'lobby'} onClick={() => socket.emit('game:start', {})}><Play size={18} /> Start</button>}
+      <button onClick={() => socket.emit(isHost ? 'host:reset' : 'room:returnToLobby', {})}><Eraser size={18} /> Return to lobby</button>
     </section>
   );
 }

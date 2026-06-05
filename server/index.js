@@ -78,7 +78,8 @@ function publicRoom(room) {
       promptCount: player.prompts.length
     })),
     chains: room.chains,
-    promptOptions: room.promptOptions
+    promptOptions: room.promptOptions,
+    hostConnected: Boolean(room.players.find((player) => player.id === room.hostId)?.connected)
   };
 }
 
@@ -130,6 +131,48 @@ function sendTask(room, playerId) {
 
 function sendTasks(room) {
   room.players.forEach((player) => sendTask(room, player.id));
+}
+
+function resetRoomToLobby(room) {
+  clearTimeout(room.timer);
+  room.state = 'lobby';
+  room.round = 0;
+  room.revealIndex = 0;
+  room.deadline = null;
+  room.chains = [];
+  room.promptOptions = {};
+  room.submissions = new Map();
+  emitRoom(room);
+}
+
+function promoteHostIfNeeded(room) {
+  const currentHost = room.players.find((player) => player.id === room.hostId);
+  if (currentHost?.connected) return;
+  const nextHost = room.players.find((player) => player.connected) || room.players[0];
+  if (!nextHost) return;
+  room.hostId = nextHost.id;
+  room.players.forEach((player) => {
+    player.isHost = player.id === nextHost.id;
+  });
+}
+
+function removePlayerFromRoom(room, playerId) {
+  const index = room.players.findIndex((player) => player.id === playerId);
+  if (index < 0) return null;
+  const [removed] = room.players.splice(index, 1);
+  if (removed.socketId) {
+    io.sockets.sockets.get(removed.socketId)?.leave(room.code);
+  }
+  promoteHostIfNeeded(room);
+  if (room.players.length === 0) {
+    clearTimeout(room.timer);
+    rooms.delete(room.code);
+  } else if (room.state === 'lobby') {
+    emitRoom(room);
+  } else {
+    emitRoom(room);
+  }
+  return removed;
 }
 
 function createRoom(hostName) {
@@ -632,6 +675,10 @@ io.on('connection', (socket) => {
       reply?.({ ok: false, error: 'Only the host can start' });
       return;
     }
+    if (room.players.length < room.config.minPlayers || room.players.length > room.config.maxPlayers) {
+      reply?.({ ok: false, error: `Need ${room.config.minPlayers}-${room.config.maxPlayers} players` });
+      return;
+    }
     startGame(room);
     reply?.({ ok: true });
   });
@@ -758,15 +805,31 @@ io.on('connection', (socket) => {
       reply?.({ ok: false, error: 'Only the host can reset' });
       return;
     }
-    clearTimeout(room.timer);
-    room.state = 'lobby';
-    room.round = 0;
-    room.revealIndex = 0;
-    room.deadline = null;
-    room.chains = [];
-    room.promptOptions = {};
-    room.submissions = new Map();
-    emitRoom(room);
+    resetRoomToLobby(room);
+    reply?.({ ok: true });
+  });
+
+  socket.on('room:returnToLobby', (_payload, reply) => {
+    const room = getPlayerRoom(socket);
+    const host = room?.players.find((player) => player.id === room.hostId);
+    const canReset = room && (socket.data.playerId === room.hostId || !host?.connected);
+    if (!canReset) {
+      reply?.({ ok: false, error: 'Only the host can reset while connected' });
+      return;
+    }
+    resetRoomToLobby(room);
+    reply?.({ ok: true });
+  });
+
+  socket.on('room:leave', (_payload, reply) => {
+    const room = getPlayerRoom(socket);
+    if (!room) {
+      reply?.({ ok: true });
+      return;
+    }
+    removePlayerFromRoom(room, socket.data.playerId);
+    socket.data.roomCode = null;
+    socket.data.playerId = null;
     reply?.({ ok: true });
   });
 
@@ -801,6 +864,7 @@ io.on('connection', (socket) => {
     if (player) {
       player.connected = false;
       player.socketId = null;
+      promoteHostIfNeeded(room);
       emitRoom(room);
     }
   });
